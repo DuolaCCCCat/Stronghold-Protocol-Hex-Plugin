@@ -33,8 +33,14 @@ export const TEXT_SIZES = Object.freeze(['sm', 'md', 'lg', 'xl']);
  *  (render/units.js), off by default: the official HUD shows them as an effect on the operator, not a number (the
  *  maintainer's decision of 2026-10-15).
  *  officialFx: 设置「官方特效」 (0.3.0, render/vfx): 'auto' (完整 on a desktop, 精简 on a touch device — render/vfx/tier.js),
- *  'off', 'lite' (精简), 'full' (完整); only shown when effects were extracted from the local client. */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, combatMetrics: false, mysticEnergy: false, quality: 'high', officialFx: 'auto', textSize: 'sm', keys: DEFAULT_HOTKEYS });
+ *  'off', 'lite' (精简), 'full' (完整); only shown when effects were extracted from the local client.
+ *  deployZoom: 设置「部署放大棋盘」 (GitHub #602, PR #646), ON by default — the official client's behaviour and this
+ *  build's own until now: while a piece is picked up on the own prep board, or a legal drop's direction wheel is open,
+ *  the shop bar folds and the board zooms to the shop-collapsed prep camera (screens/game.js deployFold →
+ *  gameLogic deployFoldsShop). Off, that fold and zoom never happen and the shop keeps its own 收起/展开 state through
+ *  the whole interaction. A pure client preference (never sent); nothing else reads it.
+ */
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoCount: false, combatMetrics: false, mysticEnergy: false, quality: 'high', officialFx: 'auto', deployZoom: true, textSize: 'sm', keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -42,7 +48,7 @@ export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
 /**
  * Sanitize persisted settings.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoCount: boolean, combatMetrics: boolean, mysticEnergy: boolean, quality: 'high'|'medium'|'low', officialFx: 'auto'|'off'|'lite'|'full',
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoCount: boolean, combatMetrics: boolean, mysticEnergy: boolean, quality: 'high'|'medium'|'low', officialFx: 'auto'|'off'|'lite'|'full', deployZoom: boolean,
  *   textSize: 'sm'|'md'|'lg'|'xl', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
@@ -63,6 +69,7 @@ export function sanitizeSettings(raw) {
     mysticEnergy: typeof r.mysticEnergy === 'boolean' ? r.mysticEnergy : DEFAULT_SETTINGS.mysticEnergy,
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
+    deployZoom: r.deployZoom !== false,
     textSize: TEXT_SIZES.includes(r.textSize) ? r.textSize : DEFAULT_SETTINGS.textSize,
     keys: sanitizeHotkeys(r.keys),
   };

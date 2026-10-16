@@ -722,8 +722,13 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoCount: false, combatMetrics: false, mysticEnergy: false, quality: 'high', officialFx: 'auto', textSize: 'sm', keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoCount: false, combatMetrics: false, mysticEnergy: false, quality: 'high', officialFx: 'auto', deployZoom: true, textSize: 'sm', keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
+    // 部署放大棋盘 (GitHub #602, PR #646): on by default, off only when the profile says so (test/ui/deploy-zoom-toggle.test.js)
+    assert.equal(DEFAULT_SETTINGS.deployZoom, true);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).deployZoom, true, 'a profile saved before the switch keeps the deploy fold');
+    assert.equal(sanitizeSettings({ deployZoom: false }).deployZoom, false);
+    assert.equal(sanitizeSettings({ deployZoom: 'no' }).deployZoom, true, 'only `false` turns it off (the game screen reads it the same way)');
     assert.equal(sanitizeSettings({ bgm: 0.5 }).voice, DEFAULT_SETTINGS.voice, 'a saved profile without `voice` gets the default');
     // 语音语言: 中文 by default. en / kr are dubs (0.3.0); anything else, including the per-operator 'native', stays 中文.
     assert.equal(DEFAULT_SETTINGS.voiceLang, 'cn');

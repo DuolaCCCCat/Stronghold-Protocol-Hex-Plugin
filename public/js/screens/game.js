@@ -181,6 +181,9 @@ function MatchScreen() {
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const metricsSetting = useSettings().combatMetrics === true;
+  // 设置「部署放大棋盘」 (GitHub #602 / PR #646): off, a picked-up piece no longer folds the shop / zooms the board — the
+  // switch only gates the deploy fold below, the player's own 收起/展开 state and every other camera are untouched.
+  const deployZoom = useSettings().deployZoom !== false;
   // gameplay plugins (DESIGN §32.6): the HUD corner's MOD mark — re-rendered only when the room's content changes
   const modRoom = useStore((s) => (s.room?.content?.vanilla === false ? s.room : null), (a, b) => (a?.content ?? null) === (b?.content ?? null));
   // the room's spectator seats for the top bar's 观战席 capsule (ui/hud.js SpectatorPill; GitHub #120): room.state keeps coming
@@ -420,8 +423,11 @@ function MatchScreen() {
   // public issue #602: while a piece is picked up on the own prep board — a deploy / equip / reposition drag, or the
   // direction wheel a legal drop opens — the official client folds the shop and zooms to the shop-collapsed prep
   // camera (the same framing as 收起, left_prepare_camera_param), then gives the player's own shop state back. It is
-  // derived from the interaction state only: `collapsed` (the 收起/展开 state) is never set by it.
-  const deployFold = deployFoldsShop({
+  // derived from the interaction state only: `collapsed` (the 收起/展开 state) is never set by it. 设置「部署放大棋盘」
+  // can switch it off (GitHub #602 / PR #646): with the setting off `deployFold` stays false for every interaction, so
+  // the fold branch below and the two derived states behave exactly as they did before this feature (and as they always
+  // do for a player who never touches the switch).
+  const deployFold = deployZoom && deployFoldsShop({
     ownPrep: !!view && viewModeRef.current === 'prep' && showPrep, editable, pen, drag: !!drag, facing: !!facing,
   });
   // the shop bar is shown folded (收起; the pen folds it for itself: the player's own state is the one it returns to) —
