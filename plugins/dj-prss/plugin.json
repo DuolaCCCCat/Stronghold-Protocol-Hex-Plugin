@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "name": {
+    "zh": "说不痛苦那是假的",
+    "en": "Saying It Doesn't Hurt Is a Lie",
+    "ja": "痛くないって言うのは嘘",
+    "ko": "아프지 않다는 건 거짓말"
+  },
+  "description": {
+    "zh": "战斗界面里的第三颗按钮：只有 prss 的动图、不显示名字。点一下放《说不痛苦那是假的》并把场上所有单位换成 GIF 替身，替身图集逐单位随机取 prss 或 amiya2（同一单位整场固定一种，两种 GIF 混在一起）；再点一下音乐停、单位复原。纯个人开关、只在局内出现，不开的人什么都看不到、也不会加载任何东西。",
+    "en": "The third button in the battle screen: the prss animation alone, no name on it. One click plays 「Saying It Doesn't Hurt Is a Lie」 and turns every unit on the field into a GIF stand-in, each unit drawing the prss or the amiya2 sheet at random (one sheet per unit, fixed for the whole session, so both GIFs appear together); another click stops the music and puts the units back. Personal switch, in-match only — players who leave it off see and load nothing.",
+    "ja": "戦闘画面の三つ目のボタン。prss のアニメだけ、名前は出しません。押すと「痛くないって言うのは嘘」を再生し、場の全ユニットを GIF の替身に変えます。替身の画像はユニットごとに prss / amiya2 からランダムに選ばれ、同じユニットは対戦中ずっと同じものを使います（二種類の GIF が混ざって見えます）。もう一度押すと音楽が止まり、ユニットは元に戻ります。個人用スイッチで、対戦中だけ表示——オフの人の画面には何も出ず、何も読み込みません。",
+    "ko": "전투 화면의 세 번째 버튼으로, prss 애니메이션만 보이고 이름은 표시하지 않습니다. 한 번 누르면 「아프지 않다는 건 거짓말」이 재생되고 필드의 모든 유닛이 GIF 대체 이미지로 바뀝니다. 대체 이미지는 유닛마다 prss 또는 amiya2 중 하나가 무작위로 정해지고, 같은 유닛은 대전 내내 그대로 씁니다(두 GIF가 함께 보입니다). 다시 누르면 음악이 멈추고 유닛이 원래대로 돌아옵니다. 개인용 스위치이며 대전 중에만 나타나고, 끈 사람에게는 아무것도 보이지 않고 아무것도 불러오지 않습니다."
+  },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 2,
+  "class": "ui",
+  "scope": [
+    "personal"
+  ],
+  "authors": [
+    "DJ-Amiya"
+  ],
+  "permissions": [
+    "ui.frame"
+  ],
+  "slots": [
+    "hud.left2"
+  ],
+  "entry": {
+    "client": "ui/index.html"
+  }
+}

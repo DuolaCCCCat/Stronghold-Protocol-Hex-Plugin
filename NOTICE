@@ -1,0 +1,49 @@
+# NOTICE — 第三方素材与实现参考
+
+本文件说明「四个 DJ 按钮」（`dj-wine` / `dj-amiya` / `dj-prss` / `dj-wine-2`）相关插件的第三方素材来源与实现参考。
+仓库自身代码的许可见 `LICENSE`（GPL-3.0-or-later）；下列素材与参考对象**不属于**本仓库代码的许可范围。
+功能说明与接手要点见 [`docs/DJ-BUTTONS.md`](docs/DJ-BUTTONS.md)。
+
+## 1. GIF 素材
+
+| 文件 | 用途 |
+|---|---|
+| `plugins-src/dj-wine/amiya.gif` | 「粥友的酒」按钮图标 |
+| `plugins-src/dj-amiya/amiya.gif` | 「若不是你突然闯进我生活」按钮图标 |
+| `plugins-src/dj-prss/prss.gif` | 「说不痛苦那是假的」按钮图标 |
+| `plugins-src/dj-wine-2/amiya.gif` | 「粥友的酒 2」按钮图标（与第一颗同一份文件内容） |
+| `public/img/dj-units/amiya.png`（27 帧）、`amiya2.png`（70 帧）、`prss.png`（70 帧） | 由上面两份动图抽帧拼成的三张图集（场上单位替身） |
+
+- **来源：网络。动图出自 B 站作者「疚刃」**：<https://space.bilibili.com/107716290>
+  （作品页链接常带 `?spm_id_from=333.788.upinfo.head.click` 追踪参数，出处以上面的空间页为准）。
+- 权利归属：动图中的角色形象版权归鹰角网络 / Yostar；GIF 本身为该 UP 主的二创作品。
+- 使用场景：非商业、免费、同好之间私下联机。
+
+## 2. 音乐
+
+| 文件 | 曲目 |
+|---|---|
+| `plugins-src/dj-wine/zhouyou-de-jiu.mp3` | 《粥友的酒》 |
+| `plugins-src/dj-amiya/ruo-bushi-ni.mp3` | 《若不是你突然闯进我生活》 |
+| `plugins-src/dj-prss/shuo-bu-tong-ku.mp3` | 《说不痛苦那是假的》 |
+| `plugins-src/dj-wine-2/zhouyou-de-jiu.mp3` | 《粥友的酒》（与第一颗同一个曲目） |
+
+- **来源：网络**，由使用者提供，并转码为 MP3（44.1 kHz / 128 kbps / 立体声）后内联进插件页面。
+- 词曲著作权与录音制作者权归各自权利人。
+
+## 3. 实现参考（未复制代码）
+
+- 参考对象：`cyanfish.dj-all` —— 仓库 `Stronghold-Protocol-CyanModPack`，作者 **CyanF1sh**：
+  <https://github.com/CyanF1sh/Stronghold-Protocol-CyanModPack>（模组目录 `mods/cyanfish.dj-all`）。
+- 参考面仅为**行为与参数**：旋转周期 67 帧（≈1.1167 s，60 fps）、压缩周期 38 帧（≈0.6333 s）、
+  压到 60% 高度 / 110% 宽度、`axis` 式横向翻转（宽度乘子，可过负值）、逐元素的作用面（棋子 / 敌人 / 装备 /
+  装置）、全场同相位；入口交互侧参考了可拖动圆键与 4 px 的点击 / 拖动判定、位置按视口比例记忆、非模态浮窗、
+  面板标题栏可拖。这些出处都写在 `public/js/render/djRotate.js` 与 `plugins-src/dj-wine/index.template.html` 的注释里。
+- **本仓库未复制该项目的任何代码或素材文件**，相同视觉效果为独立实现（宿主侧一次根容器变换 + 宿主自有 CSS）。
+- 许可说明：该仓库整体为 **GPL-3.0**。因其代码未被复制、仅参考行为后独立编写，**本仓库代码不因此受其许可传染**；
+  本仓库的许可仍以 `LICENSE` 为准。
+
+## 4. 异议处理
+
+若上述任一素材的权利人认为收录不妥，请通过仓库 issue 提出。处理方式：**删除对应素材文件，保留功能代码**
+（缺素材时该插件的 `ui/index.html` 不再内联该文件；宿主侧的旋转 / 灯效 / 替身能力与其余素材不受影响）。
