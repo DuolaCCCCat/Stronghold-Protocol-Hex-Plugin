@@ -192,3 +192,19 @@ node tools/plugin.mjs install <zip 路径> [--force]  # 装进目标服务器的
 | 旋转 / 压缩（画布侧） | `public/js/render/djRotate.js`、`public/css/screens/game.css` |
 | GIF 替身 | `public/js/render/unitsGif.js`、`public/img/dj-units/*.png` |
 | 灯效样式 | `public/css/screens/game.css` |
+
+## 未验证：真机观感（本机限制）
+
+真机上的拖动定位、`frame` 坐标记忆与刷新还原、`dj-rotate` / `units-gif` / `dj-neon` 三种效果的开合与关闭后零残留、
+以及音乐播放，**在本机未验证**：这台机器没有 Chrome，`test/ui/dj-*.e2e.test.js` 经 `CHROME_PATH` 指向 Edge (Chromium)
+运行时会红，而且现役线 `hex-030` 上同一条测试同样会红（`hex-030` 22 s、`hex-031` 47.8 s，红在不同步骤），
+所以这批 e2e 在本机不作为判据。需在装有 Chrome 的机器上补跑：
+
+```
+SP_E2E=1 CHROME_PATH=<chrome> node --test test/ui/dj-wine.e2e.test.js
+SP_E2E=1 CHROME_PATH=<chrome> node --test test/ui/dj-amiya.e2e.test.js
+```
+
+不需要浏览器的部分已在本机验证：`plugin check --strict`（4 个插件 0 problem 0 warning）、四个 `build-page --check`
+均为最新、`test/ui/dj-{rotate,tune,units}.test.js` 与 `test/plugins/dj-authors.test.js`、
+`shared/plugins/ui.js` 的校验器对 `frame` / `effect` 的接受与拒绝、以及临时实例上四个插件页 200 与 `content.plugins=4`。
