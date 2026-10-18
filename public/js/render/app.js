@@ -2367,6 +2367,9 @@ export async function createFieldView(host, options = {}) {
         pen: penViews.size, penHidden, prepField: prepXf.kind === 'bossPrep' ? prepXf.side : null, lod: loadLevel, culled: culledCount,
         ...fx.counts, officialFx: ofx.stats(), spine: assets.spine?.stats ? assets.spine.stats() : null, renderT: interp.renderT, rate: interp.rate,
         buffered: interp.size, camera: cam.params(),
+        // the ui plugins' host visuals (shared/plugins/ui.js UI_EFFECTS): null until a plugin asks for one, so a test can
+        // tell "nothing of the effect exists" from "it exists and is off"
+        unitsGif: unitsGif ? unitsGif.stats() : null, djRotate: djRotate ? djRotate.stats() : null,
       };
     },
     get mode() { return mode; },
