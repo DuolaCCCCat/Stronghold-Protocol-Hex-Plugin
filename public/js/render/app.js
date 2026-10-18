@@ -4,7 +4,7 @@
 //   const view = await createFieldView(host, { data, assets, audio, settings, padding, hud })
 //   Optional playbackTime: () => gameSeconds drives animations from an external simulation clock (studio stepping).
 //   view.setStage(stage)                        procedural tiles + devices (data/stages.json entry)
-//   view.setCamera(kind, { rect, side, padding, instant, shop })   'prep'|'normal'|'unite'|'boss'('hidden'); animated
+//   view.setCamera(kind, { rect, side, padding, instant, shop, fold })   'prep'|'normal'|'unite'|'boss'('hidden'); animated
 //                                               — the prep cameras (own board / Final Assault half) keep the bench
 //                                               and the field clear of `hud(kind, size, { shop })` = { top, bottom } px
 //                                               of DOM HUD along the top / bottom edge (projection.js clearHud; user
@@ -616,10 +616,11 @@ export async function createFieldView(host, options = {}) {
     // official configBlackBoard framing (render/projection.js presetCamera); the padding only matters for the
     // fitted fallback (custom rects, portrait viewports); a prep camera keeps the bench and the field clear of the HUD
     // — `shop: false` (the folded shop, public issue #5) = the official shop-collapsed camera, clear of the folded
-    // shop's HUD band (re-evaluated on resize: camOpts keep the flag)
+    // shop's HUD band (re-evaluated on resize: camOpts keep the flag); `fold` (设置「部署放大力度」) interpolates it
+    // with the shop camera
     const vk = viewKind(kind, o); // (a 'prep' camera on the boss rows = the Final Assault prep)
     return presetCamera(k, { width: sz.width, height: sz.height, padding: o.padding || defaultPadding(k, sz) }, {
-      rect, side: o.side, half: !!o.half, shop: o.shop, fit: !!o.fit, config: stageRec?.config || null,
+      rect, side: o.side, half: !!o.half, shop: o.shop, fold: o.fold, fit: !!o.fit, config: stageRec?.config || null,
       hud: hudBands(vk, sz, { shop: o.shop !== false }),
     });
   }

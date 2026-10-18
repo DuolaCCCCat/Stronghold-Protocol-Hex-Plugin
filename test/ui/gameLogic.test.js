@@ -722,7 +722,7 @@ describe('keyboard & settings', () => {
   test('sanitizeSettings', () => {
     assert.deepEqual(sanitizeSettings(null), { ...DEFAULT_SETTINGS });
     assert.deepEqual(sanitizeSettings({ bgm: 3, sfx: -1, voice: 2, muted: 'yes', damageNumbers: false, quality: 'ultra' }),
-      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', keys: { ...DEFAULT_SETTINGS.keys } },
+      { bgm: 1, sfx: 0, voice: 1, voiceLang: 'cn', voiceNative: false, voiceOverrides: {}, muted: false, damageNumbers: false, officialDamageNumbers: false, ammoEnergyCount: false, combatMetrics: false, prepDeployFold: 100, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', keys: { ...DEFAULT_SETTINGS.keys } },
       'a saved profile without `keys` (before 0.2.0) gets the default key map (test/ui/feedback5-hotkeys.test.js)');
     // 显示其他玩家的皮肤 (docs/SKINS.md): on by default, and off only when the profile says so
     assert.equal(DEFAULT_SETTINGS.otherSkins, true);
@@ -751,6 +751,17 @@ describe('keyboard & settings', () => {
     for (const bad of ['native', 'JP', 'ja', 1, null]) assert.equal(sanitizeSettings({ voiceLang: bad }).voiceLang, 'cn', String(bad));
     assert.equal(sanitizeSettings({ bgm: 0.333 }).bgm, 0.33);
     assert.equal(sanitizeSettings({ quality: 'low' }).quality, 'low');
+    // 部署放大力度 (GitHub #692): an integer 0–100, the old boolean switch migrates on read
+    assert.equal(DEFAULT_SETTINGS.prepDeployFold, 100);
+    assert.equal(sanitizeSettings({ bgm: 0.5 }).prepDeployFold, 100, 'a profile saved before the slider keeps the released framing');
+    assert.equal(sanitizeSettings({ prepDeployFold: true }).prepDeployFold, 100, 'a saved boolean on stays the 0.3.1 framing');
+    assert.equal(sanitizeSettings({ prepDeployFold: false }).prepDeployFold, 0, 'a saved boolean off is 0');
+    for (const [v, want] of [[0, 0], [1, 1], [25, 25], [100, 100], [-4, 0], [150, 100], [33.6, 34], [0.4, 0]]) {
+      assert.equal(sanitizeSettings({ prepDeployFold: v }).prepDeployFold, want, String(v));
+    }
+    for (const bad of ['50', null, NaN, Infinity, {}, [], true.toString()]) {
+      assert.equal(sanitizeSettings({ prepDeployFold: bad }).prepDeployFold, 100, String(bad));
+    }
   });
 });
 

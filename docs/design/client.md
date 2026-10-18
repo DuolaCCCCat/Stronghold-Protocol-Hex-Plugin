@@ -42,12 +42,15 @@ do not generate layer cues. Field entry, leaving the game and muting cancel play
 ```js
 const view = await createFieldView(canvasHost /* HTMLElement */, { data, assets, audio })
 view.setStage(stage)                         // draw tiles (procedural), devices
-view.setCamera(kind /* 'prep'|'normal'|'unite'|'boss' */, { rect, side, shop, ms })  // animates camera; shop: false = the
+view.setCamera(kind /* 'prep'|'normal'|'unite'|'boss' */, { rect, side, shop, fold, ms })  // animates camera; shop: false = the
                                              //   folded shop's prep camera (official shop-collapsed framing, §21.27);
                                              //   ms overrides the flight duration — the shop fold / unfold zoom takes
                                              //   the short FOLD_CAMERA_MS (render/app/tune.js, GitHub #602).
-                                             //   设置「部署时收起商店」 (prepDeployFold, default on) is that zoom;
-                                             //   off, a pickup changes neither the shop fold nor the camera (§34.3).
+                                             //   设置「部署放大力度」 (prepDeployFold, integer 0–100, default 100) is that
+                                             //   zoom; 0, a pickup changes neither the shop fold nor the camera, and a value
+                                             //   in between folds the shop and takes that share of the camera change
+                                             //   (fold = v / 100, projection.js interpolates the two prep cameras; §34.3,
+                                             //   GitHub #692).
                                              //   Opening 敌方情报 during a held drag leaves that one-shot restore owed
                                              //   until the pen closes [ASSUMED] (§34.3).
                                              //   'pen' pans to the enemy preview pen in 0.25 s (see below)
@@ -388,7 +391,8 @@ Explicit false and unmarked raw displacements face the travel direction. Normal 
 
 Settings persist `textSize` (sm/md/lg/xl; default sm), `voiceLang` (cn/jp/en/kr; default cn), `voiceNative` (the
 本土语言 switch; default false), `voiceOverrides` (charId → cn/jp/en/kr/native; default empty), `prepDeployFold`
-(部署时收起商店; default true — only an explicit false turns the 0.3.0 deploy fold off) and `ammoEnergyCount`
+(部署放大力度; integer 0–100, default 100 — the deploy fold's shop collapse and zoom, 0 off and 100 the 0.3.1 framing;
+a saved boolean migrates `true` → 100 / `false` → 0) and `ammoEnergyCount`
 (显示弹药与能量数量; default false). A saved `ammoCount` or `mysticEnergy` of `true` migrates into `ammoEnergyCount`
 on read and is not written back. CSS text uses `--t`;
 the layout rem, camera and board geometry stay unchanged. Larger text and translated controls wrap within the settings

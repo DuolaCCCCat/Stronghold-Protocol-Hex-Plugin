@@ -32,15 +32,17 @@ export const TEXT_SIZES = Object.freeze(['sm', 'md', 'lg', 'xl']);
  *  number. A profile that still has either old key `true` migrates to on; those keys are not written back.
  *  [ASSUMED] a stored boolean `ammoEnergyCount` wins over the old keys, so turning the merged switch off stays off.
  *  combatMetrics: 设置「作战统计」 (PR #618), off by default: the official HUD has no such panel.
- *  prepDeployFold: 设置「部署时收起商店」 — picking up a piece on the own prep board folds the shop and zooms
- *  (GitHub #602, PR #646). Default on (the 0.3.0 behaviour). Off: the pickup changes neither the shop's fold nor the
- *  camera. [ASSUMED] the label; only an explicit false turns it off (a missing or junk value stays on).
+ *  prepDeployFold: 设置「部署放大力度」 — picking up a piece on the own prep board folds the shop and zooms it
+ *  (GitHub #602, PR #646; the strength slider of GitHub #692). An integer 0–100: the fold and the zoom are scaled
+ *  linearly from 0 (a pickup changes neither the shop's fold nor the camera) to 100 (the released 0.3.1 framing).
+ *  Default 100; a missing or junk value stays 100, and a boolean profile saved before the slider migrates
+ *  (true → 100, false → 0).
  *  officialFx: 设置「官方特效」 (0.3.0, render/vfx): 'auto' (完整 on a desktop, 精简 on a touch device — render/vfx/tier.js),
  *  'off', 'lite' (精简), 'full' (完整); only shown when effects were extracted from the local client.
  *  otherSkins: 设置「显示其他玩家的皮肤」 (docs/SKINS.md), ON by default — draw the appearance another player chose instead
  *  of the operator's own model. A pure client preference (never sent): off, only this player's own pieces wear a skin.
  */
-export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, combatMetrics: false, prepDeployFold: true, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', keys: DEFAULT_HOTKEYS });
+export const DEFAULT_SETTINGS = Object.freeze({ bgm: 0.6, sfx: 0.8, voice: 0.8, voiceLang: 'cn', voiceNative: false, voiceOverrides: Object.freeze({}), muted: false, damageNumbers: true, officialDamageNumbers: false, ammoEnergyCount: false, combatMetrics: false, prepDeployFold: 100, quality: 'high', officialFx: 'auto', otherSkins: true, textSize: 'sm', keys: DEFAULT_HOTKEYS });
 const QUALITIES = ['high', 'medium', 'low'];
 /** The values of 设置「官方特效」 (render/vfx/tier.js OFFICIAL_FX). Display order in the dialog is low / medium / high. */
 export const OFFICIAL_FX_MODES = Object.freeze(['auto', 'off', 'lite', 'full']);
@@ -57,9 +59,22 @@ function ammoEnergyCountOf(r) {
 }
 
 /**
+ * The 部署放大力度 slider. A profile saved before it stored the switch as a boolean: true was the full deploy fold
+ * (100), false off (0). A finite number is rounded and clamped to 0–100; a missing key, a string or any other junk
+ * stays 100, the released default — an untouched profile keeps the 0.3.1 behaviour exactly.
+ * @param {any} v
+ * @returns {number}
+ */
+function prepDeployFoldOf(v) {
+  if (typeof v === 'boolean') return v ? 100 : 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return clamp(Math.round(v), 0, 100);
+  return DEFAULT_SETTINGS.prepDeployFold;
+}
+
+/**
  * Sanitize persisted settings. Retired keys `ammoCount` and `mysticEnergy` are read here and never returned.
  * @param {any} raw
- * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, combatMetrics: boolean, prepDeployFold: boolean, quality: 'high'|'medium'|'low', officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
+ * @returns {{ bgm: number, sfx: number, voice: number, voiceLang: 'cn'|'jp'|'en'|'kr', voiceNative: boolean, voiceOverrides: Record<string, string>, muted: boolean, damageNumbers: boolean, officialDamageNumbers: boolean, ammoEnergyCount: boolean, combatMetrics: boolean, prepDeployFold: number, quality: 'high'|'medium'|'low', officialFx: 'auto'|'off'|'lite'|'full', otherSkins: boolean,
  *   textSize: 'sm'|'md'|'lg'|'xl', keys: Record<'buy'|'refresh'|'freeze'|'levelUp'|'retreat'|'sell'|'ready', string> }}
  */
 export function sanitizeSettings(raw) {
@@ -77,7 +92,7 @@ export function sanitizeSettings(raw) {
     officialDamageNumbers: typeof r.officialDamageNumbers === 'boolean' ? r.officialDamageNumbers : false,
     ammoEnergyCount: ammoEnergyCountOf(r),
     combatMetrics: typeof r.combatMetrics === 'boolean' ? r.combatMetrics : DEFAULT_SETTINGS.combatMetrics,
-    prepDeployFold: typeof r.prepDeployFold === 'boolean' ? r.prepDeployFold : true,
+    prepDeployFold: prepDeployFoldOf(r.prepDeployFold),
     quality: QUALITIES.includes(r.quality) ? r.quality : DEFAULT_SETTINGS.quality,
     officialFx: OFFICIAL_FX_MODES.includes(r.officialFx) ? r.officialFx : DEFAULT_SETTINGS.officialFx,
     otherSkins: r.otherSkins !== false,

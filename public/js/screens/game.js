@@ -37,8 +37,9 @@
 // gameLogic prepCameraFor / foldCamera — never over the pen, a teammate's board or a battle; deferred while a piece is
 // dragged or its direction is chosen). A deploy is the other way round (GitHub #602, PR #646 by @Euqorab): picking up a
 // piece on the own prep board, and a legal drop's direction wheel, fold the shop bar for as long as they last and zoom
-// to that framing at once (gameLogic deployFoldsShop) while 设置「部署时收起商店」 is on (the default). Off, the pickup
-// changes neither the shop's fold nor the camera. Turning it off mid-drag gives both back on that frame
+// to that framing at once (gameLogic deployFoldsShop) while 设置「部署放大力度」 is above 0 (the default 100). At 0 the
+// pickup changes neither the shop's fold nor the camera; in between the shop still folds and the camera takes that
+// share of the zoom (render/projection.js `fold`). Turning it to 0 mid-drag gives both back on that frame
 // (gameLogic deployZoomStep / prepDeployCamera). Opening 敌方情报 while the piece is still held does not spend
 // that frame: the zoom stays owed until the pen closes (deployZoomRemember). [ASSUMED] The player's own fold
 // state comes back after. The fold flights take FOLD_CAMERA_MS (render/app/tune.js), not the generic camera flight.
@@ -371,7 +372,7 @@ function MatchScreen() {
   const prepCamKey = `${prepCam.kind}:${prepCam.opts.side}`;
   const prepCamSeen = useRef(prepCamKey);                // the prep camera last requested
   const camRef = useRef({ kind: 'prep', opts: { rect: { ...GEO.NORMAL_RECT }, side: 'L' } });
-  // the previous frame applied the deploy zoom, so turning 设置「部署时收起商店」 off mid-drag can give it back.
+  // the previous frame applied the deploy zoom, so turning 设置「部署放大力度」 to 0 mid-drag can give it back.
   // It stays set when that release returns null only because the enemy pen is open (deployZoomRemember). [ASSUMED]
   const deployZoomedRef = useRef(false);
   const penRef = useRef({ on: false, collapsed: false });
@@ -462,11 +463,12 @@ function MatchScreen() {
   // direction wheel a legal drop opens — the official client folds the shop and zooms to the shop-collapsed prep
   // camera (the same framing as 收起, left_prepare_camera_param), then gives the player's own shop state back. It is
   // derived from the interaction state only: `collapsed` (the 收起/展开 state) is never set by it.
-  // 设置「部署时收起商店」 (default on). Off: a pickup changes neither the shop fold nor the camera.
-  // Only an explicit false disables it. [ASSUMED] the label 「部署时收起商店」.
+  // 设置「部署放大力度」 (default 100). At 0 a pickup changes neither the shop fold nor the camera; above 0 the shop
+  // folds and the camera takes that share of the zoom. [ASSUMED] the label 「部署放大力度」.
+  const deployFoldStrength = playerSettings.prepDeployFold;
   const deployFold = deployFoldsShop({
     ownPrep: !!view && viewModeRef.current === 'prep' && showPrep, editable, pen, drag: !!drag, facing: !!facing,
-    enabled: playerSettings.prepDeployFold !== false,
+    enabled: deployFoldStrength > 0,
   });
   // the shop bar is shown folded (收起; the pen folds it for itself: the player's own state is the one it returns to) —
   // the own prep board then takes the official shop-collapsed camera (public issue #5, gameLogic prepCameraFor);
@@ -730,16 +732,17 @@ function MatchScreen() {
   // deferred while a piece is dragged or its direction is chosen (the drop target and the wheel sit on tiles of the
   // camera in use) and this effect runs again when that ends (gameLogic foldCamera). Picking reads the camera of
   // every frame (render/pick.js). A deploy interaction is the opposite (public issue #602, gameLogic
-  // deployFoldsShop) while 设置「部署时收起商店」 is on: it zooms to the shop-collapsed camera as soon as the piece is
-  // picked up, for the drag and the wheel's whole duration, and restores the player's own shop state when it ends.
-  // Turning the setting off mid-drag releases that zoom on this one frame even while the piece is still held
+  // deployFoldsShop) while 设置「部署放大力度」 is above 0: it zooms to the shop-collapsed camera as soon as the piece
+  // is picked up, for the drag and the wheel's whole duration, and restores the player's own shop state when it ends.
+  // In between, the request carries that share and projection.js interpolates the two prep cameras.
+  // Turning the setting to 0 mid-drag releases that zoom on this one frame even while the piece is still held
   // (deployZoomedRef); later frames of the same drag do not, so a hand-made 收起 still waits. Opening 敌方情报
   // during the held drag makes that release frame return null; the zoom stays owed until the pen closes
   // (deployZoomRemember). [ASSUMED] no official source settles that order.
   useEffect(() => {
     const step = deployZoomStep(deployZoomedRef.current, deployFold);
     const next = prepDeployCamera({
-      pub, myId, deployFold, releaseDeploy: step.release, folded: shopFolded,
+      pub, myId, deployFold, fold: deployFoldStrength / 100, ownFolded: collapsed, releaseDeploy: step.release, folded: shopFolded,
       ownPrep: !!view && viewModeRef.current === 'prep' && showPrep,
       pen, busy: !!drag || !!facing, current: camRef.current,
     });
@@ -748,7 +751,7 @@ function MatchScreen() {
     deployZoomedRef.current = deployZoomRemember(step, { next, pen });
     // the fold zoom and the restore fly with the short FOLD_CAMERA_MS, not a generic camera flight
     if (next) setCam(next.kind, { ...next.opts, ms: FOLD_CAMERA_MS });
-  }, [view, deployFold, shopFolded, showPrep, pen, !!drag, !!facing, prepCamKey]);
+  }, [view, deployFold, deployFoldStrength, shopFolded, showPrep, pen, !!drag, !!facing, prepCamKey]);
 
   // 联防 / 最终攻势: the ‹ › pill moves the camera between the field's halves and 全景 (research 09 §3.1)
   useEffect(() => {

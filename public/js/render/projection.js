@@ -435,9 +435,25 @@ const sameRect = (a, b) => !!a && !!b && a.r0 === b.r0 && a.r1 === b.r1 && a.c0 
  * `opts.half` frames only that half of a unite/boss field; `opts.shop === false` uses the shop-collapsed prep camera.
  * `opts.hud` = { top, bottom } (CSS px of HUD along the top / bottom edge): the official prep / Final Assault prep
  * camera keeps the bench and the field clear of it (`clearHud`, the preset's `keep` band).
+ * `opts.fold` (0–1, 设置「部署放大力度」, GitHub #692): how much of the shop-collapsed framing the deploy fold takes —
+ * 1 or absent is the shop-collapsed camera itself, a value in between interpolates the shop camera and it linearly in
+ * every camera parameter (offset, distance and focal scale), 0 the shop camera (no zoom, no shift).
  */
 export function presetCamera(kind, viewport, options) {
   const opts = options && typeof options === 'object' ? options : {};
+  if (opts.fold !== undefined) {
+    const fold = clamp(finite(opts.fold, 1), 0, 1);
+    if (fold < 1) {
+      const open = presetCamera(kind, viewport, { ...opts, fold: undefined, shop: true });
+      if (fold <= 0) return open;
+      const shut = presetCamera(kind, viewport, { ...opts, fold: undefined, shop: false });
+      // the strength reads as a plain percentage of the camera change: every parameter, the focal scale included,
+      // is blended linearly (camera flights keep lerpCamera's log-space scale for feel — this is a target, not a flight)
+      const cam = lerpCamera(open, shut, fold);
+      cam.scale = open.scale + (shut.scale - open.scale) * fold;
+      return cam.update();
+    }
+  }
   let k = kind === 'hidden' ? 'boss' : kind;
   if (!CAMERA_PRESETS[k]) k = 'normal';
   let rect = opts.rect ? normRect(opts.rect) : null;

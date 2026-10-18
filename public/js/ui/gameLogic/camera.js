@@ -103,8 +103,8 @@ export function foldCamera(s) {
  * (`ownPrep`, `editable`), the camera is not over the enemy pen (`pen`), and a piece is dragged (`drag`) or the
  * direction wheel of a legal drop is open (`facing`; equipment and summons skip the wheel and restore on drop).
  * Unlike a hand-made fold this one never waits for the interaction to end — it zooms as the piece is picked up. It is
- * derived from the interaction state and never writes the player's 收起/展开 state. `enabled` omitted stays on (callers
- * and the default of 设置「部署时收起商店」). Only an explicit false turns the temporary fold off. [ASSUMED] that label.
+ * derived from the interaction state and never writes the player's 收起/展开 state. `enabled` is the caller's gate:
+ * omitted stays on, only an explicit false turns the temporary fold off (设置「部署放大力度」 at 0). [ASSUMED] that label.
  * @param {{ ownPrep?: boolean, editable?: boolean, pen?: boolean, drag?: boolean, facing?: boolean, enabled?: boolean }|null|undefined} o
  * @returns {boolean}
  */
@@ -115,7 +115,7 @@ export function deployFoldsShop(o) {
 
 /**
  * Whether this frame's deploy fold should zoom the board, and whether a zoom already applied must be given back now.
- * `zoomed` is the previous frame's deploy zoom (the caller remembers it). Turning 设置「部署时收起商店」 off while a
+ * `zoomed` is the previous frame's deploy zoom (the caller remembers it). Turning 设置「部署放大力度」 to 0 while a
  * piece is still held (`deployFold` becomes false) releases that zoom on this one frame — later frames of the same
  * drag do not, so a hand-made 收起 during the rest of the drag still waits (issue #5).
  * @param {boolean} zoomed
@@ -129,7 +129,7 @@ export function deployZoomStep(zoomed, deployFold) {
 /**
  * Whether the deploy zoom is still owed after this frame (`deployZoomedRef`). `step` is `deployZoomStep`;
  * `frame.next` is what `prepDeployCamera` returned for that same step and `frame.pen` is the enemy pen.
- * Turning 设置「部署时收起商店」 off asks for the player's camera on one frame. Opening 敌方情报 during the
+ * Turning 设置「部署放大力度」 to 0 asks for the player's camera on one frame. Opening 敌方情报 during the
  * held drag makes that frame return null (`foldCamera` while `pen`), and forgetting the zoom there left an
  * open shop on the still-zoomed board until the drag ended. A null because the pen is open keeps the zoom
  * owed, so closing the pen still passes `releaseDeploy` while the piece is held. A null only because the
@@ -146,21 +146,28 @@ export function deployZoomRemember(step, frame) {
 
 /**
  * The prep camera this frame: the deploy zoom when `deployFold` (GitHub #602), else the shop fold's camera
- * (`foldCamera`). `releaseDeploy` skips the busy deferral for the one frame a deploy zoom is given back, so turning
- * the setting off mid-drag cannot leave the camera zoomed. A hand-made fold while the setting is off and no deploy
+ * (`foldCamera`). `fold` is 设置「部署放大力度」 as 0–1 (1 when omitted): below 1 the request carries that strength
+ * and `presetCamera` interpolates the shop camera and the folded-shop one; at 1 the request is the released one.
+ * `ownFolded` is the player's own 收起 state: the shop was already at the folded framing before the pickup, so the
+ * temporary fold changes nothing and the request stays the released one whatever the strength (no zoom back out).
+ * `releaseDeploy` skips the busy deferral for the one frame a deploy zoom is given back, so turning
+ * the setting to 0 mid-drag cannot leave the camera zoomed. A hand-made fold while the setting is off and no deploy
  * zoom is in effect still defers (`busy`).
- * @param {{ pub: any, myId: string|null, deployFold?: boolean, releaseDeploy?: boolean, folded: boolean,
+ * @param {{ pub: any, myId: string|null, deployFold?: boolean, fold?: number, ownFolded?: boolean, releaseDeploy?: boolean, folded: boolean,
  *   ownPrep: boolean, pen?: boolean, busy?: boolean,
- *   current?: { kind: string, opts?: { shop?: boolean } }|null }|null|undefined} s
+ *   current?: { kind: string, opts?: { shop?: boolean, fold?: number } }|null }|null|undefined} s
  * @returns {{ kind: 'prep'|'bossPrep', opts: object }|null}
  */
 export function prepDeployCamera(s) {
   if (!s) return null;
   if (s.deployFold) {
     const want = prepCameraFor(s.pub, s.myId, true);
+    const fold = s.ownFolded ? 1 : (typeof s.fold === 'number' && Number.isFinite(s.fold) ? (s.fold <= 0 ? 0 : s.fold >= 1 ? 1 : s.fold) : 1);
+    const opts = fold < 1 ? { ...want.opts, fold } : want.opts;
     const cur = s.current;
-    if (cur && cur.kind === want.kind && cur.opts?.shop === false) return null;
-    return want;
+    const curFold = typeof cur?.opts?.fold === 'number' ? cur.opts.fold : 1;
+    if (cur && cur.kind === want.kind && cur.opts?.shop === false && curFold === (opts.fold ?? 1)) return null;
+    return { kind: want.kind, opts };
   }
   return foldCamera({
     pub: s.pub, myId: s.myId, folded: s.folded, ownPrep: s.ownPrep, pen: s.pen,

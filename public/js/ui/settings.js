@@ -109,6 +109,22 @@ function Slider({ label, micro, value, onInput, icon }) {
   </label>`;
 }
 
+/**
+ * 设置「部署放大力度」 (GitHub #692): an integer 0–100 with a 1 % step, so every strength in between is available
+ * (the volume sliders step by 5 %). The value reads as a percentage, 0 as 关闭; the same .set-range control and row
+ * layout as the other sliders, no new CSS.
+ */
+function FoldSlider({ label, micro, value, onChange }) {
+  const v = Math.round(value);
+  return html`<label class="set-row" data-testid="prep-deploy-fold">
+    <span class="set-row__label">${label}<${MicroLabel}>${micro}<//></span>
+    <input class="set-range" type="range" min="0" max="100" step="1" value=${v} style=${`--pct:${v}%`}
+      aria-valuetext=${v ? `${v}%` : tc('toggle', '关闭')}
+      onInput=${(e) => onChange(Number(e.currentTarget.value))} />
+    <span class="set-row__val num">${v ? `${v}%` : tc('toggle', '关闭')}</span>
+  </label>`;
+}
+
 function Toggle({ label, micro, value, onChange }) {
   return html`<div class="set-row">
     <span class="set-row__label">${label}<${MicroLabel}>${micro}<//></span>
@@ -503,8 +519,8 @@ export function SettingsModal({ open, onClose }) {
       <p class="set-hint">${t('弹药类技能开启时，在弹药条下方显示剩余弹药 / 总弹药数（如 13/14）；秘术师的血条下方显示储存的攻击能量 / 上限（如 2/3）。官方界面没有这些数字。')}</p>
       <${Toggle} label=${t('作战统计')} micro="COMBAT STATS" value=${s.combatMetrics} onChange=${(v) => updateSettings({ combatMetrics: v })} />
       <p class="set-hint">${t('打开后，对局左下角可以查看自己干员的伤害、治疗和 DPS / HPS。官方界面没有这个窗口。改变玩法的插件对局在 Worker 里演算，统计不到，按钮不显示。')}</p>
-      <${Toggle} label=${t('部署时收起商店')} micro="DEPLOY FOLD" value=${s.prepDeployFold} onChange=${(v) => updateSettings({ prepDeployFold: v })} />
-      <p class="set-hint">${t('拖起干员、装备或召唤物，以及放下后选择朝向时，临时收起商店并放大棋盘。关闭后，拿起时既不改变商店的收起状态，也不缩放镜头。')}</p>
+      <${FoldSlider} label=${t('部署放大力度')} micro="DEPLOY FOLD" value=${s.prepDeployFold} onChange=${(v) => updateSettings({ prepDeployFold: v })} />
+      <p class="set-hint">${t('拖起干员、装备或召唤物，以及放下后选择朝向时，临时收起商店并放大棋盘。拖动滑块调整放大力度，0 为关闭（不收起商店，也不缩放镜头）。')}</p>
       <div class="set-row">
         <span class="set-row__label">${t('画面质量')}<${MicroLabel}>QUALITY<//></span>
         <div class="set-seg" role="radiogroup">
