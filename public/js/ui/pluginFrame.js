@@ -193,6 +193,8 @@ function moveFrame(rec, home) {
   rec.ready = false;
   rec.netAt = null;
   rec.netText = '';
+  // hidden again until this new document's own load: the reload starts from a blank document
+  rec.iframe.classList.remove('is-ready');
   home.appendChild(rec.iframe);
 }
 
@@ -202,6 +204,8 @@ function place(rec) {
   const el = slot ? document.querySelector(`[data-ui-slot="${slot}"]`) : null;
   const home = rec.preview?.host || el || parkEl();
   if (rec.iframe.parentElement !== home) moveFrame(rec, home);
+  // A frame the plugin asked for before this slot existed (its page loads first) is applied now instead
+  if (rec.frameReq) applyFrameRequest(rec);
 }
 
 function byPluginName(a, b) {
@@ -332,6 +336,12 @@ function mount(entry, preview = null) {
     if (decision === 'entry') {
       if (!rec.preview) postNetNow(rec);
       post(rec, hostWelcome(id, declared, rec.preview ? undefined : welcomeInfo(rec)));
+      // The entry painted: show it. Until now the frame was hidden (components.css, `.ui-slot__frame` without
+      // `is-ready`) so its blank first document could not flash a backdrop over the game.
+      rec.iframe.classList.add('is-ready');
+      // and tell it where its frame is and how big the play area is, so a drag has an origin and a saved place can be
+      // restored as a fraction of it
+      postFrame(rec);
     }
   });
   iframe.src = src;
@@ -561,14 +571,10 @@ function handle(rec, msg) {
   }
   if (msg.t === 'frame') {
     // (x, y) in play-area (match screen) CSS px; the host clamps the box and moves the slot, so the page is not
-    // reloaded and a drag in progress keeps its pointer capture (applyFrame).
-    const area = playArea();
-    const slot = slotElement(rec);
-    if (!area || !slot) { post(rec, hostRejected('unavailable')); return; }
-    const box = clampFrame({ x: msg.x, y: msg.y, w: msg.w ?? area.w, h: msg.h ?? rec.frame?.h ?? area.h }, area.w, area.h);
-    if (!box) { post(rec, hostRejected('shape')); return; }
-    applyFrame(rec, box);
-    postFrame(rec);
+    // reloaded and a drag in progress keeps its pointer capture (applyFrame). A plugin usually posts this before the
+    // match screen's slot exists (its page loads first), so the request is remembered and applied when it does.
+    rec.frameReq = { x: msg.x, y: msg.y, w: msg.w, h: msg.h };
+    applyFrameRequest(rec);
     return;
   }
   if (msg.t === 'effect') {
@@ -716,8 +722,7 @@ function slotElement(rec) {
 }
 
 /** The match screen and its size: the play area a `frame` message places the plugin's box in. */
-function playArea() {
-  const el = document.querySelector(MATCH_SELECTOR);
+function playArea() {  const el = document.querySelector(MATCH_SELECTOR);
   if (!el) return null;
   const w = el.clientWidth;
   const h = el.clientHeight;
@@ -770,10 +775,29 @@ function applyFrame(rec, box) {
   rec.iframe.style.height = `${box.h}px`;
 }
 
+/**
+ * Apply the box the plugin last asked for (`frame`), now: clamp it against the play area and move the slot. Returns
+ * false while there is nothing to move (no match screen / no slot yet) — the request stays on the record, and `place()`
+ * applies it again as soon as the slot exists (a plugin's page loads before the match screen's slot does).
+ * @param {FrameRec} rec @returns {boolean}
+ */
+function applyFrameRequest(rec) {
+  const req = rec.frameReq;
+  const area = playArea();
+  const slot = slotElement(rec);
+  if (!req || !area || !slot) return false;
+  const box = clampFrame({ x: req.x, y: req.y, w: req.w ?? area.w, h: req.h ?? rec.frame?.h ?? area.h }, area.w, area.h);
+  if (!box) return false;
+  applyFrame(rec, box);
+  postFrame(rec);
+  return true;
+}
+
 /** Forget the inline place (a slot that was re-created keeps the stylesheet's default). @param {FrameRec} rec */
 function clearFrame(rec) {
   const slot = slotElement(rec);
   rec.frame = undefined;
+  rec.frameReq = null;                // the slot's own box is the request now, so a late `place()` must not re-apply it
   if (!slot) return;
   slot.classList.remove('is-placed');
   for (const prop of ['left', 'top', 'right', 'bottom', 'width', 'height']) slot.style.removeProperty(prop);

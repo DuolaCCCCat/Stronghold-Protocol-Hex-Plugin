@@ -1119,8 +1119,12 @@
 .plugpanel__reapply { display: flex; flex-wrap: wrap; align-items: center; gap: .08rem .12rem; }
 .ui-slot { display: flex; flex-direction: column; gap: .04rem; min-width: 0; }
 .ui-slot:empty { display: none; }
-/* [ASSUMED] color-scheme: dark clears the iframe's opaque white canvas. A background the plugin paints still shows. */
-.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: dark; }
+/* [ASSUMED] color-scheme: dark clears the iframe's opaque white canvas. A background the plugin paints still shows.
+   The frame stays invisible until its ENTRY document has loaded (public/js/ui/pluginFrame.js adds `is-ready` at that
+   load, and takes it off again whenever the host re-parents the frame and a blank document starts over), so the blank
+   first document can never flash a backdrop over the game. */
+.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: dark; opacity: 0; }
+.ui-slot__frame.is-ready { opacity: 1; }
 .ui-slot__tabs { display: flex; flex-wrap: wrap; gap: .02rem; }
 .ui-slot__tab {
   flex: 1 1 auto; min-width: 0; max-width: 100%; padding: .02rem .04rem; border: 1px solid var(--line-2);
