@@ -167,6 +167,8 @@ import { CAMERA_MS, BOARD3D_STABLE_MS, BOARD3D_RETRY_MS, PEN_CAMERA_MS, RANGE_GR
 import { boardPreference, switchableBox, bandFor, fieldRows, boardArea, viewKind, restView, flightView } from './app/view.js';
 import { renderInfo, FORCED_EXIT, showsDeathFx } from './app/info.js';
 import { resolveAssets, makeData, withTimeout, QUALITY_RES, BOARD_RES, releaseGl } from './app/host.js';
+import { createUnitsGif } from './unitsGif.js';
+import { createDjRotate } from './djRotate.js';
 import { t } from '../../../shared/i18n.js';
 
 export { ensurePixi } from './app/pixi.js';
@@ -2133,6 +2135,15 @@ export async function createFieldView(host, options = {}) {
   globalThis.document?.addEventListener?.('visibilitychange', onVisible);
   setupCleanup.push(() => globalThis.document?.removeEventListener?.('visibilitychange', onVisible));
 
+  // ---- the ui plugins' host visuals (shared/plugins/ui.js UI_EFFECTS) ------------------------------------------
+  // One overlay each, created the first time a ui plugin asks for it, plus a pre-render ticker slot: UPDATE_PRIORITY
+  // -23 (units-gif) / -22 (dj-rotate) — after `frame` (0) has updated every view and before PIXI's own render (-25),
+  // so the hidden flags units-gif re-asserts are the ones that draw and the transforms dj-rotate writes are the last.
+  let unitsGif = null;
+  let unitsGifTicking = false;
+  let djRotate = null;
+  let djRotateTicking = false;
+
   // ---- public API ---------------------------------------------------------------------------------------------
 
   view = {
@@ -2146,6 +2157,49 @@ export async function createFieldView(host, options = {}) {
     replayDeploys,
     /** Enemy preview pen: a list in m.private.nextEnemies shape, or null to empty it (setPrep does this itself). */
     setPen(list) { if (destroyed) return false; setPenList(Array.isArray(list) ? list : null); return true; },
+    /**
+     * A ui plugin's host visual `units-gif` (shared/plugins/ui.js UI_EFFECTS, docs/PLUGINS.md §14): while on, every
+     * unit / piece view on the field is hidden and an animated GIF stand-in follows it (render/unitsGif.js). `variant`
+     * names the strategy (`amiya2` | `mix`, `UI_UNIT_VARIANTS`; absent = `amiya2`): `amiya2` draws one sheet for the
+     * whole field, `mix` gives every unit its own sheet (assigned once when it appears, kept while it is on the
+     * field). Visibility only — no texture, mesh, sim value or unit state is touched; `false` destroys the stand-ins
+     * and each view shows itself again. Returns whether it is on (`prefers-reduced-motion: reduce` leaves it off).
+     * @param {boolean} want @param {string} [variant]
+     */
+    setUnitsGif(want, variant) {
+      if (destroyed) return false;
+      const on = !!want;
+      // nothing to undo before the effect was ever asked for: a stray `off` does not even mount the overlay
+      if (!unitsGif && !on) return false;
+      if (!unitsGif) unitsGif = createUnitsGif(ctx, { views, cam: () => cam, clock: () => clock });
+      const now = unitsGif.setOn(on, typeof variant === 'string' ? variant : null);
+      if (now && !unitsGifTicking) { app.ticker.add(unitsGif.tick, null, -23); unitsGifTicking = true; }
+      if (!now && unitsGifTicking) { app.ticker.remove(unitsGif.tick); unitsGifTicking = false; }
+      return now;
+    },
+    /**
+     * A ui plugin's host visual `dj-rotate` (shared/plugins/ui.js UI_EFFECTS, docs/PLUGINS.md §14) on the field: the
+     * canvas half of the 整活 the HUD class does. While on, every piece / enemy / item view on the field turns about
+     * the unit's feet and is squashed with the HUD (render/djRotate.js), from one clock, at the stylesheet's own
+     * parameters and phase — or at the requesting plugin's `tune` (`{ turn, squash, pulse }`, already bounded by
+     * shared/plugins/ui.js), which is how 粥友的酒 asks for the owner's speed while the other buttons keep the
+     * reference's. A transform of each view's root container only — no texture, mesh, sim value or unit state is
+     * written, so picking (`render/pick.js` is by tile), dragging and deployment are untouched. `false` puts each
+     * container's own scale back number for number. Returns whether it is on (`prefers-reduced-motion: reduce` leaves
+     * it off).
+     * @param {boolean} want @param {{ turn?: number, squash?: number, pulse?: number } | null} [tune]
+     */
+    setDjRotate(want, tune) {
+      if (destroyed) return false;
+      const on = !!want;
+      // nothing to undo before the effect was ever asked for: a stray `off` does not even make the engine
+      if (!djRotate && !on) return false;
+      if (!djRotate) djRotate = createDjRotate({ views });
+      const now = djRotate.setOn(on, on ? (tune && typeof tune === 'object' ? tune : null) : undefined);
+      if (now && !djRotateTicking) { app.ticker.add(djRotate.tick, null, -22); djRotateTicking = true; }
+      if (!now && djRotateTicking) { app.ticker.remove(djRotate.tick); djRotateTicking = false; }
+      return now;
+    },
     enterBattle,
     pushSnapshot,
     pushEvents,

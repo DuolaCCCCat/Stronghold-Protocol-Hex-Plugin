@@ -82,6 +82,7 @@ import { ruleOption } from '../../../shared/plugins/rules.js';
 import { html, Spinner, PhaseBanner, ResultDialog, Icon, Button, confirmDialog, closeAllDialogs, useTicker } from '../ui/components.js';
 import { useGameData, GIcon } from '../ui/gameComponents.js';
 import { useFieldView } from '../ui/fieldHost.js';
+import { setFieldView } from '../ui/pluginFrame.js';
 import { TopBar, liveLp, ownLeaks, uniteRemaining, tempInfo, tempReadyReason } from '../ui/hud.js';
 import { BondStrip, BondPopup } from '../ui/bondStrip.js';
 import { TeamPanel } from '../ui/teamPanel.js';
@@ -212,6 +213,14 @@ function MatchScreen() {
   const barRef = useRef(null);
   const hudElRef = useRef(null);                         // .gm__hud (inside the safe-area insets: the panels' frame)
   const { view, kind: viewKind } = useFieldView(hostRef);
+
+  // The ui plugins' host visuals that draw on the field (`units-gif`, `dj-rotate`) live on the view the match mounted:
+  // hand it over on mount and take it back on unmount, so a remount re-applies what a plugin currently asks for and a
+  // closed screen can never leave a stand-in layer behind on a dead view (public/js/ui/pluginFrame.js setFieldView).
+  useEffect(() => {
+    setFieldView(view);
+    return () => setFieldView(null);
+  }, [view]);
 
   const [watching, setWatching] = useState(null);        // fieldId the player chose to watch (null = home)
   const [watchWho, setWatchWho] = useState(null);        // { fieldId, playerId }: the teammate picked with 前往查看
@@ -1739,6 +1748,9 @@ function MatchScreen() {
       <${Ticker} />
 
       <div class="ui-slot gm__ui-slot" data-ui-slot="hud.right" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left2" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left3" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
 
       <div class="gm__corner">
         ${showMetrics && metricsOpen ? html`<${CombatMetricsPanel} myId=${myId} watching=${watchedFieldId} onClose=${() => setMetricsOpen(false)} />` : null}

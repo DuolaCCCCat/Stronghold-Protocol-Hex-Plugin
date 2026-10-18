@@ -1001,6 +1001,136 @@
 .pauseov__plate h2 { font-size: calc(.5 * var(--t)); font-weight: 900; letter-spacing: .3em; color: #fff; text-shadow: 0 0 .2rem rgba(0, 0, 0, .8); }
 .pauseov__note { font-size: calc(.17 * var(--t)); color: var(--text-md); text-shadow: 0 1px 2px #000; }
 .pauseov__btns { display: flex; gap: .2rem; }
+/* ---- the ui plugins' host visuals (shared/plugins/ui.js UI_EFFECTS) ------------------------------
+   dj-rotate: one class on `.gm__hud` turns the whole battle HUD — and, through the field view
+   (public/js/render/djRotate.js), the pieces on the board — at the reference mod's numbers;
+   the requester's `tune` overrides the three custom properties. dj-neon: two decorative layers on the
+   body, CSS only. public/js/ui/pluginFrame.js adds and removes both; nothing here is on until a plugin
+   asks for it, and reduced motion never sees either. */
+@property --gm-dj-squash { syntax: "<number>"; inherits: false; initial-value: 0; }
+@property --gm-dj-turn { syntax: "<number>"; inherits: false; initial-value: 1; }
+@keyframes gm-dj-squash {
+  0% { --gm-dj-squash: 0; }
+  40% { --gm-dj-squash: 1; }
+  80%, 100% { --gm-dj-squash: 0; }
+}
+@keyframes gm-dj-turn {
+  0% { --gm-dj-turn: 1; } 12.5% { --gm-dj-turn: .70711; } 25% { --gm-dj-turn: 0; } 37.5% { --gm-dj-turn: -.70711; }
+  50% { --gm-dj-turn: -1; } 62.5% { --gm-dj-turn: -.70711; } 75% { --gm-dj-turn: 0; } 87.5% { --gm-dj-turn: .70711; }
+  100% { --gm-dj-turn: 1; }
+}
+/* The reference's numbers as the defaults (an inline `tune` from the requesting plugin overrides any of the three). */
+.gm__hud.is-dj-rotate {
+  --gm-dj-turn-dur: 1.116667s;
+  --gm-dj-pulse-dur: .633333s;
+  --gm-dj-depth: .4;
+  --gm-dj-anim: gm-dj-squash var(--gm-dj-pulse-dur) linear infinite, gm-dj-turn var(--gm-dj-turn-dur) linear infinite;
+}
+.gm__hud.is-dj-rotate .gtop,
+.gm__hud.is-dj-rotate .team,
+.gm__hud.is-dj-rotate .gm__effects,
+.gm__hud.is-dj-rotate .uframe,
+.gm__hud.is-dj-rotate .bonds-toggle,
+.gm__hud.is-dj-rotate .gm__bond-list,
+.gm__hud.is-dj-rotate .shopbar > *,
+.gm__hud.is-dj-rotate .gm__corner > *,
+.gm__hud.is-dj-rotate .chud > *,
+.gm__hud.is-dj-rotate .gm__watching,
+.gm__hud.is-dj-rotate .gm__dead,
+.gm__hud.is-dj-rotate .ticker {
+  transform-origin: 50% 50%;
+  scale: calc((1 + .1 * var(--gm-dj-squash)) * var(--gm-dj-turn)) calc(1 - var(--gm-dj-depth) * var(--gm-dj-squash));
+  animation: var(--gm-dj-anim, none);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm__hud.is-dj-rotate { --gm-dj-anim: none; }
+}
+/* The host's night-club lighting: `effect { name: 'dj-neon', on: true }` (docs/PLUGINS.md §14, shared/plugins/ui.js
+   UI_EFFECTS). `ui/pluginFrame.js` builds ONE fixed, full-screen box on the body (not a child of `.screen.gm`: Preact
+   re-renders the match screen's children and would drop a foreign node there, and the HUD's own `scale` must never
+   reach it) and removes it whole on `on: false`. z-index 2 is above the screens (`--z-screen: 1`) and below banners /
+   dialogs / toasts (40 / 80 / 90), and `pointer-events: none` means every click goes through to the game. The box's
+   own values (where a blob sits, its size, hue, timing, drift and blur) are written once when it is built — always a
+   new random seed — and the motion is the CSS below; nothing runs per frame, and the box leaving takes it all with it.
+   A — the rim glow: a conic rainbow larger than the box spins under a radial mask that is transparent in the centre
+       and opaque at the rim (the four edges glow and fade towards the middle), breathing 0.6↔1.0; the box itself
+       fades in over 0.9 s.
+   B — 4–8 coloured blobs over the field. Each is a long radial gradient (fully transparent only at 90 % of its
+       radius) under its own static `filter: blur(40–72 px)` — the blur is on the blob, never on the whole layer, so
+       there is no recognisable circular boundary and no full-screen blur to pay for. They flash on independent
+       0.74–1.18 s `steps(1, end)` cycles (a phase offset each), drift slowly (`translate`, random direction and
+       distance), and carry a slow `hue-rotate` while staying at a peak opacity of 0.28–0.42. `mix-blend-mode: screen`
+       keeps them reading as ambient light rather than stickers, and the board and the units stay readable.
+   `prefers-reduced-motion: reduce` never gets the box (ui/pluginFrame.js checks before creating it) and this file
+   hides it too, so a system change mid-match cannot leave it running. */
+.gm__neon {
+  position: fixed; inset: 0; z-index: calc(var(--z-screen) + 1);
+  pointer-events: none; overflow: hidden; opacity: 0;
+  animation: gm-neon-in .9s ease-out forwards;
+}
+@keyframes gm-neon-in { from { opacity: 0; } to { opacity: 1; } }
+.gm__neon__edge {
+  position: absolute; inset: 0; opacity: .65;
+  -webkit-mask-image: radial-gradient(ellipse 78% 74% at 50% 50%, transparent 40%, rgba(0, 0, 0, .35) 64%, #000 92%);
+  mask-image: radial-gradient(ellipse 78% 74% at 50% 50%, transparent 40%, rgba(0, 0, 0, .35) 64%, #000 92%);
+  animation: gm-neon-breathe 3.6s ease-in-out infinite alternate;
+}
+@keyframes gm-neon-breathe { from { opacity: .6; } to { opacity: 1; } }
+.gm__neon__rainbow {
+  /* A square, not the 16:9 box: the conic gradient turns, and at 45° a 160 %×160 % rectangle left the far corners of a
+     wide viewport uncovered (a 2560×1440 box covers only a 720 px radius, the corner is 918 px away). 220vmax square,
+     centred, covers every corner at every angle and on every aspect ratio. */
+  position: absolute;
+  left: calc(50% - 110vmax); top: calc(50% - 110vmax);
+  width: 220vmax; height: 220vmax;
+  background: conic-gradient(from 0deg, #ff2b6d, #ff8a00, #ffe600, #3dff7a, #00e0ff, #4c6bff, #c000ff, #ff2b6d);
+  animation: gm-neon-spin 6.5s linear infinite;
+  will-change: transform;
+}
+@keyframes gm-neon-spin { to { transform: rotate(1turn); } }
+/* One blob: its box, hue, timings, drift and blur are the custom properties ui/pluginFrame.js writes when it builds
+   the box (a fresh random seed each time). The long gradient reaches transparent only at 90 %, and the blob's own
+   `filter: blur()` softens what is left, so no edge of a blob is ever a recognisable circle. */
+.gm__neon__blob {
+  position: absolute;
+  left: var(--gm-neon-x, 8%); top: var(--gm-neon-y, 8%);
+  width: var(--gm-neon-w, 30%); height: var(--gm-neon-h, 34%);
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  opacity: .16;
+  background: radial-gradient(circle at 50% 50%,
+    hsl(var(--gm-neon-hue, 320) 92% 62% / .9) 0%,
+    hsl(var(--gm-neon-hue, 320) 92% 62% / .55) 26%,
+    hsl(var(--gm-neon-hue, 320) 92% 62% / .22) 50%,
+    hsl(var(--gm-neon-hue, 320) 92% 62% / .05) 72%,
+    transparent 90%);
+  filter: blur(var(--gm-neon-blur, 56px));
+  animation:
+    gm-neon-flash var(--gm-neon-dur, .95s) steps(1, end) var(--gm-neon-delay, 0s) infinite,
+    gm-neon-drift var(--gm-neon-drift-dur, 11s) ease-in-out var(--gm-neon-drift-delay, 0s) infinite alternate,
+    gm-neon-hue 14s linear var(--gm-neon-delay, 0s) infinite;
+  will-change: opacity, transform;
+}
+@keyframes gm-neon-flash {
+  0% { opacity: calc(var(--gm-neon-peak, .38) * .35); }
+  40% { opacity: var(--gm-neon-peak, .38); }
+  52% { opacity: calc(var(--gm-neon-peak, .38) * .3); }
+  76% { opacity: calc(var(--gm-neon-peak, .38) * .8); }
+  100% { opacity: calc(var(--gm-neon-peak, .38) * .35); }
+}
+@keyframes gm-neon-drift {
+  from { translate: 0 0; }
+  to { translate: var(--gm-neon-dx, 0px) var(--gm-neon-dy, 0px); }
+}
+@keyframes gm-neon-hue {
+  from { filter: blur(var(--gm-neon-blur, 56px)) hue-rotate(0deg); }
+  to { filter: blur(var(--gm-neon-blur, 56px)) hue-rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm__neon { display: none; }
+}
+
 /* 协议已失效 (ui/downedPlate.js): the project's Modal restyled as the event's panel (video 10:56–10:58) — the official map
    behind, the knocked-out face, the title, and the two buttons under the panel; design px ÷ 100 [ASSUMED: measured from
    that footage]. The face turns from calm to knocked out after .5 s with a shake; with reduced motion it simply shows. */

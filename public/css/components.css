@@ -1134,6 +1134,14 @@
   position: absolute; z-index: 6; right: .92rem; bottom: calc(4.76rem + .12rem); width: 2.6rem;
   max-height: calc(100% - 4.88rem - 1.7rem); overflow: auto; pointer-events: auto;
 }
+/* The battle screen's bottom-left button stack (shared/plugins/manifest.js UI_SLOT_IDS: hud.left, hud.left2, hud.left3):
+   three more slots in the same column, staggered, so four in-match buttons sit above one another without sharing a slot
+   (upstream's same-slot tabs still apply within any one of them). A plugin that asks the host for its own box
+   (`frame`, public/js/ui/pluginFrame.js applyFrame) gets `is-placed` and moves its slot instead. */
+.gm__ui-slot[data-ui-slot="hud.left"] { right: auto; left: .92rem; bottom: calc(4.76rem + .12rem); }
+.gm__ui-slot[data-ui-slot="hud.left2"] { right: auto; left: .92rem; bottom: calc(4.76rem + .12rem + 3rem); }
+.gm__ui-slot[data-ui-slot="hud.left3"] { right: auto; left: .92rem; bottom: calc(4.76rem + .12rem + 6rem); }
+.ui-slot.is-placed { right: auto; bottom: auto; max-height: none; overflow: visible; }
 .plugpanel__reapply .set-hint { margin: 0; }
 /* gameplay plugins (DESIGN §32.6 P1c): the unofficial marks (tag, panel rows, UnofficialMark of the briefing / HUD / result),
    the room's plugin modes and this page's check of the room's content set */
