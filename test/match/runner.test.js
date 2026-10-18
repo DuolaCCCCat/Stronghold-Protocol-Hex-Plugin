@@ -227,6 +227,109 @@ test('own battle statistics stay available when viewing a teammate; owner filter
   assert.ok(r.runner.combatMetrics({ scope: 'battle', ownerId }).rows.every((row) => row.ownerId === ownerId));
   assert.deepEqual(r.runner.combatMetrics({ scope: 'match', ownerId }), own, 'match view remains restricted to self');
   assert.equal(r.runner.combatMetrics({ scope: 'battle', ownerId: 'unavailable-player' }).rows.length, 0);
+  // the panel's follow contract on the runner side (test/ui/combat-metrics.test.js holds the picker half): the field on
+  // screen names the seat to read, the rows come out of the viewer's OWN copy of that battle — a spectator therefore
+  // reads the watched player's own numbers, not a sampled reply — and the seat is still named after its replica is gone
+  assert.equal(r.runner.watchedOwner(), 'metrics-teammate', 'the watched field names the seat the panel follows');
+  assert.equal(r.runner.lastWatchedOwner(), 'metrics-teammate');
+  r.advance(5000, 50);
+  const watchedRead = r.runner.combatMetrics({ scope: 'battle', ownerId: r.runner.watchedOwner() });
+  assert.ok(watchedRead.rows.length > 0, 'the watched seat has rows in the local replica');
+  assert.ok(watchedRead.rows.every((row) => row.ownerId === 'metrics-teammate'), 'only that seat is read');
+  const defIds = (result) => result.rows.map((row) => row.defId).sort();
+  assert.deepEqual(defIds(watchedRead), defIds(own), 'the replica carries the same board as the own battle');
+  assert.ok(r.runner.combatMetrics({ scope: 'battle', ownerId }).rows.every((row) => row.ownerId === ownerId), 'the own seat keeps its own copy');
+  r.store.patch('match', { public: { phase: PHASE.PREP } });
+  assert.equal(r.runner.watchedOwner(), null, 'the replica is gone with the round');
+  assert.equal(r.runner.lastWatchedOwner(), 'metrics-teammate', 'the panel keeps naming it');
+  assert.equal(r.runner.combatMetrics({ scope: 'battle', ownerId: 'metrics-teammate' }).rows.length, 0, 'its live battle cleared');
+  assert.ok(r.runner.combatMetrics({ scope: 'match', ownerId: 'metrics-teammate' }).rows.length > 0, 'the kept record still answers');
+  r.runner.dispose();
+});
+
+test('every battle records the m.public.round it was prepared in, so combatMetrics can total one round alone', async () => {
+  const start = realStart(7312);
+  const r = rig();
+  // the battle is prepared while the match publishes round 2 (the m.public.round a b.start belongs to)
+  r.store.patch('match', { public: { phase: PHASE.COMBAT, round: 2 } });
+  r.net.emit('b.start', start);
+  await r.settle();
+  r.advance(60000, 50);
+  await r.settle();
+  assert.equal(r.runner._entries.get(start.battleId).round, 2, 'the entry carries the round it was prepared in');
+  const round2 = r.runner.combatMetrics({ scope: 'round', round: 2 });
+  assert.ok(round2.damage > 0);
+  assert.deepEqual(round2, r.runner.combatMetrics({ scope: 'round' }), 'no round argument means the current round');
+  assert.ok(Math.abs(round2.damage - r.runner.combatMetrics().damage) < 1e-6, 'one round is the whole match so far');
+  assert.deepEqual(r.runner.combatRounds(), [2], 'the round the match is in');
+  // an older round has no record of its own, and a round that never ran is empty rather than the live battle
+  assert.equal(r.runner.combatMetrics({ scope: 'round', round: 1 }).rows.length, 0);
+  assert.equal(r.runner.combatMetrics({ scope: 'round', round: 1 }).damage, 0);
+  assert.equal(r.runner.combatMetrics({ scope: 'round', round: 9 }).rows.length, 0);
+  // the round ends: the entry is dropped and its reading moves into the kept per-round record
+  const finalMetrics = structuredClone(r.runner.combatMetrics());
+  r.store.patch('match', { public: { phase: PHASE.PREP, round: 3 } });
+  assert.equal(r.runner.combatMetrics({ scope: 'battle' }).rows.length, 0, 'the live battle cleared');
+  assert.deepEqual(r.runner.combatMetrics({ scope: 'round', round: 2 }), finalMetrics, 'round 2 keeps its reading across the prep');
+  assert.deepEqual(r.runner.combatMetrics({ scope: 'round' }), { rows: [], damage: 0, healing: 0 }, 'the new round starts empty');
+  // a panel that follows one player asks for a fallback: an empty current round answers with the newest round that has
+  // a record (the round that just settled, while the next round's first battle is still being prepared)
+  assert.deepEqual(r.runner.combatMetrics({ scope: 'round', fallback: true }), { ...finalMetrics, round: 2 },
+    'fallback lands on round 2 and names the round it read');
+  assert.equal(r.runner.combatMetrics({ scope: 'round', round: 1, fallback: true }).rows.length, 0, 'an older round stays empty');
+  assert.deepEqual(r.runner.combatRounds(), [2, 3], 'the current round and every round with a kept record');
+  assert.deepEqual(r.runner.combatMetrics({ scope: 'match' }), finalMetrics, 'match totals still hold every round');
+  // a rewound round (the room went back) is not a round that ran: only the current one and the kept records remain
+  r.store.patch('match', { public: { phase: PHASE.PREP, round: 1 } });
+  assert.deepEqual(r.runner.combatRounds(), [1]);
+  assert.equal(r.runner.combatMetrics({ scope: 'round', round: 2 }).rows.length, 0);
+  r.runner.dispose();
+});
+
+test('a panel following a seat falls back to the last recorded round outside combat (a prep, a settle)', async () => {
+  const start = realStart(7313);
+  const r = rig();
+  const ownId = start.spec.players[0].playerId;
+  // the page simulated the own battle in round 2 and the watched teammate's replica in round 3 (a spectator seat)
+  r.store.patch('match', { public: { phase: PHASE.COMBAT, round: 2 } });
+  await r.runner.onStart({ ...start, battleId: 'phase-own-2', authoritative: false, watch: false });
+  r.advance(20000, 50);
+  const replica = structuredClone(start);
+  replica.battleId = 'phase-watched-3';
+  replica.fieldId = 'n:watched';
+  replica.authoritative = false;
+  replica.watch = true;
+  for (const player of replica.spec.players) player.playerId = 'watched';
+  r.store.patch('match', { public: { phase: PHASE.COMBAT, round: 3 } });
+  await r.runner.onStart(replica);
+  r.advance(20000, 50);
+  const live = r.runner.combatMetrics({ scope: 'battle', ownerId: 'watched', fallback: true });
+  assert.ok(live.rows.length > 0, 'in combat the battle on screen answers');
+  assert.equal(live.round, undefined, 'a live reading is unchanged (no kept-round label)');
+  const ended = r.runner.combatMetrics({ scope: 'battle', ownerId: 'watched' });
+  // the round settles: the battle is dropped with the round and only its kept record remains
+  r.store.patch('match', { public: { phase: PHASE.RESULT, round: 3 } });
+  const settled = r.runner.combatMetrics({ scope: 'battle', ownerId: 'watched', fallback: true });
+  assert.equal(settled.round, 3, 'a settle shows the round that just ended');
+  assert.deepEqual(settled.rows, ended.rows, 'the finished battle’s own rows, byte for byte');
+  assert.equal(settled.damage, ended.damage);
+  assert.equal(settled.healing, ended.healing);
+  assert.ok(settled.rows.every((row) => row.ownerId === 'watched'), 'only the followed seat’s rows');
+  // the next round's prep: the current round has no record yet, so the last recorded round answers and is named
+  r.store.patch('match', { public: { phase: PHASE.PREP, round: 4 } });
+  const prep = r.runner.combatMetrics({ scope: 'battle', ownerId: 'watched', fallback: true });
+  assert.equal(prep.round, 3, 'a prep falls back to the last round that has a record');
+  assert.deepEqual(prep.rows, ended.rows, 'and reads that round’s kept rows');
+  assert.equal(r.runner.combatMetrics({ scope: 'battle', ownerId: 'stranger', fallback: true }).rows.length, 0,
+    'a seat with no record never borrows the followed one’s rows');
+  // 切回自己: the own seat reads its own last round, never the teammate's
+  const own = r.runner.combatMetrics({ scope: 'battle', ownerId: ownId, fallback: true });
+  assert.equal(own.round, 2, 'the own seat lands on its own last recorded round');
+  assert.ok(own.rows.length > 0 && own.rows.every((row) => row.ownerId === ownId), 'own rows stay the own seat’s');
+  // the same trip through 「本轮」, which must name the round it actually read
+  const roundView = r.runner.combatMetrics({ scope: 'round', round: 4, fallback: true });
+  assert.equal(roundView.round, 3, '「本轮」 names the round its fallback read');
+  assert.deepEqual(roundView.rows, ended.rows);
   r.runner.dispose();
 });
 
@@ -646,7 +749,12 @@ test('settings expose 作战统计 off by default and the match hides the button
   assert.match(logic, /combatMetrics: false/);
   assert.match(settings, /label=\$\{t\('作战统计'\)\} micro="COMBAT STATS" value=\$\{s\.combatMetrics\}/);
   assert.match(game, /setCombatMetrics\(s\?\.combatMetrics === true\)/);
-  assert.match(game, /const showMetrics = metricsSetting && !modRoom && !spectator/);
+  // a spectator seat sees the button too now (it reads the teammate it watches); a gameplay-plugin room still does not
+  assert.match(game, /const showMetrics = metricsSetting && !modRoom;/);
+  assert.doesNotMatch(game, /const showMetrics = [^\n]*!spectator/);
+  assert.match(game, /CombatMetricsPanel\} myId=\$\{myId\} watching=\$\{watchedFieldId\}/);
+  // the field a panel follows: the one picked with 前往查看, else one the screen is on without having picked it
+  assert.match(game, /const watchedFieldId = watching \|\| \(field && field\.fieldId !== home \? field\.fieldId : null\)/);
   assert.match(game, /data-ui-slot="hud\.right"/);
   const state = { me: {}, room: null, match: { public: null, battle: null }, connection: { status: 'online' } };
   const line = (s) => buildDiagnostics({ state, env: {}, settings: s }).split('\n').find((l) => l.startsWith('settings:'));

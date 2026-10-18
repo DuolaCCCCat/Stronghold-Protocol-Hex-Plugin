@@ -222,16 +222,30 @@ test('takeover: a connected client that never reports is taken over at time limi
   m.dispose();
 });
 
-test('observing: no watching while the own battle runs; after it ends a teammate\'s spec + clock; eliminated players watch anything', () => {
+test('observing: a teammate is watchable while the own battle runs (our deviation); the own field keeps its authority; eliminated players watch anything', () => {
   const h = makeMatch({ mode: 'coop', humans: 3, seed: 9107, fake: true, clientCombat: true, instant: false, pace: 'paced',
     script: (b) => ({ duration: b.players.includes('p_0') ? 2 : 30 }) }).start();
   const m = h.m;
   h.toPrep(1);
   for (const pid of ['p_0', 'p_1', 'p_2']) m.handle(pid, { t: 'g.ready', ready: true });
   h.run(() => m.phase === PHASE.COMBAT);
-  // p_1 still fights: it may not look elsewhere
-  assert.deepEqual(m.handle('p_1', { t: 'g.watch', fieldId: 'n:p_2' }), { error: 'WRONG_PHASE', detail: 'own battle running' });
   h.run(() => fields(h).find((f) => f.fieldId === 'n:p_0').done);
+  // p_1 still fights: it MAY look at p_2 (our deviation from the official 「作战中无法查看队友」). Its own field is
+  // untouched: it stays its authority and keeps reporting (a watcher never becomes an authority and an authority never
+  // loses one — clientCombat.js _authorityFor / _startMsg).
+  assert.equal(fields(h).find((f) => f.fieldId === 'n:p_1').authority, 'p_1');
+  assert.deepEqual(m.handle('p_1', { t: 'g.watch', fieldId: 'n:p_2' }), { ok: true }, 'own battle running: watchable (our deviation)');
+  assert.equal(m.watchers.get('p_1'), 'n:p_2');
+  const mid = h.lastTo('p_1', 'b.start');
+  assert.equal(mid.fieldId, 'n:p_2');
+  assert.equal(mid.watch, true, 'a display replica, not the own authoritative battle');
+  assert.equal(mid.authoritative, false, 'watching never hands the watcher authority over the watched field');
+  assert.equal(fields(h).find((f) => f.fieldId === 'n:p_1').authority, 'p_1', 'the own field keeps its authority');
+  // and back to the own field, which is still live
+  assert.deepEqual(m.handle('p_1', { t: 'g.watch', fieldId: 'n:p_1' }), { ok: true });
+  assert.equal(h.lastTo('p_1', 'b.start').fieldId, 'n:p_1');
+  assert.equal(h.lastTo('p_1', 'b.start').authoritative, true, 'the own field is authoritative again');
+  assert.equal(fields(h).find((f) => f.fieldId === 'n:p_1').done, false, 'the own battle never stopped (the script gives it 30 s)');
   const target = fields(h).find((f) => f.fieldId === 'n:p_2');
   assert.equal(target.live, true);
   h.sched.advance(1000);

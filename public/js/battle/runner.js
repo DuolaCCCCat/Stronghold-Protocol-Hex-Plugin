@@ -194,10 +194,23 @@ export function createBattleRunner(deps) {
   /** compact combat snapshots of locally simulated battles (battle/metrics.js) for the panel's match totals; `clear`
    *  drops them when the match really restarts */
   const combatHistory = new Map();
+  /** the m.public.round of every battle this page simulated (battleId → round), kept beside combatHistory: the
+   *  「本轮」 scope reads the entries of one round, which combatHistory alone cannot tell apart (army-observation
+   *  stats panel). A battle is stamped with the round it was prepared in; `clear()` drops the stamps with the
+   *  entries, so a rewound round never leaves a stale one behind. */
+  const combatRound = new Map();
+  /** m.public.round as last published, 0 outside a match (before the first m.public). */
+  let curRound = 0;
+  /** the teammate the page was last watching (watchedOwner), remembered across a clear so a spectator's panel keeps
+   *  reading that teammate's kept round record instead of falling back to the viewer's own empty numbers. */
+  let lastWatched = null;
   const rememberCombat = (e) => {
     if (!e.combatMetrics) return;
     const record = e.combatMetrics();
-    if (!(combatHistory.get(e.battleId)?.seconds > record.seconds)) combatHistory.set(e.battleId, record);
+    if (!(combatHistory.get(e.battleId)?.seconds > record.seconds)) {
+      combatHistory.set(e.battleId, record);
+      combatRound.set(e.battleId, e.round || curRound);
+    }
   };
   // Opt-in (设置「作战统计」, default off). A boolean deps.combatMetrics pins a test and ignores setCombatMetrics.
   // Otherwise screens/game.js pushes the settings store. A Worker host never attaches: its page battle is wire state.
@@ -305,6 +318,28 @@ export function createBattleRunner(deps) {
   function uniteLeftMap() {
     const e = cur;
     return !loading && e && e.kind === 'unite' && e.left ? { ...e.left } : null;
+  }
+
+  /**
+   * The player whose battle is on screen when the page is watching a teammate: the `n:<playerId>` of a replica's
+   * field id, null for the own battle (`home` / a shared field / no battle). 「作战统计」 and the ui plugin metrics
+   * channel follow it, so a spectator reads the teammate's numbers instead of its own empty ones.
+   * `lastOwner` is what it read while the last replica was still simulated: a field stops existing at the next
+   * round's clear, and a spectator must keep reading the teammate it watched (the read then answers from the kept
+   * round record) instead of falling back to the viewer's own — empty — numbers.
+   */
+  function watchedOwner() {
+    const e = cur;
+    if (!e || !e.watch) return null;
+    const m = /^n:(.+)$/.exec(String(e.fieldId || ''));
+    if (m) lastWatched = m[1];
+    return m ? m[1] : null;
+  }
+
+  /** The teammate most recently watched, still named once its replica is gone (the kept round record answers). */
+  function lastWatchedOwner() {
+    watchedOwner();
+    return lastWatched;
   }
 
   function state() {
@@ -747,6 +782,9 @@ export function createBattleRunner(deps) {
       // (a spec of another content than the page's: a display replica only — see the header)
       authoritative: !!msg.authoritative && csAccepted(msg.spec.cs, { loading: true }), watch: !!msg.watch, own: !msg.watch, speed,
       members: (msg.spec.players || []).map((p) => p && p.playerId).filter(Boolean),
+      // the m.public.round this battle belongs to (the 「本轮」 scope of combatMetrics); the live round when a
+      // b.start arrives without one (a solo / test runner has no store)
+      round: curRound,
       t0: null, lastProgressAt: -Infinity, done: false, resultSent: false,
       result: null, delivery: null,
       // local-only combat accounting (battle/metrics.js), attached once the Battle exists; the 作战统计 panel reads
@@ -903,7 +941,7 @@ export function createBattleRunner(deps) {
     for (const e of [...entries.values(), ...pending.values()]) e.host?.stop();
     pending.clear();
     entries.clear();
-    if (!keepMetrics) combatHistory.clear();
+    if (!keepMetrics) { combatHistory.clear(); combatRound.clear(); }
     cur = null;
     lastPool = null;
     if (rafH != null) { caf(rafH); rafH = null; }
@@ -929,8 +967,10 @@ export function createBattleRunner(deps) {
       // a fresh match (m.public gone), a rewound round or a return to a lobby-like phase resets the combat totals
       const resetMetrics = (!pub && lastPhase != null) || round < lastRound
         || (pub?.phase !== lastPhase && ['LOBBY', 'INFO_CHECK', 'BAND_DRAFT', 'BATTLE_CHECK'].includes(pub?.phase));
-      if (resetMetrics) combatHistory.clear();
+      if (resetMetrics) { combatHistory.clear(); combatRound.clear(); }
       lastRound = round;
+      // every b.start prepared from here on belongs to this round (combatMetrics 'round' scope)
+      curRound = round;
       // solo pause (DESIGN §14): the local battle clocks follow m.public.paused
       setPaused(!!(pub && pub.paused));
       const phase = pub ? pub.phase : null;
@@ -964,26 +1004,84 @@ export function createBattleRunner(deps) {
      */
     setCombatMetrics,
     /**
-     * Local-only damage/healing accounting (battle/metrics.js) for the 作战统计 panel: the own current battle
-     * (`battle`) or every battle simulated so far in this match (`match`), each restricted to `ownerId` when given.
+     * Local-only damage/healing accounting (battle/metrics.js) for the 作战统计 panel and the ui plugin metrics
+     * channel: the battle on screen (`battle`), the battles of one round (`round`), or every battle simulated so far
+     * in this match (`match`), each restricted to `ownerId` when given.
      * Read on demand by the panel — never sent to the server.
-     * @param {{ scope?: 'battle'|'match', ownerId?: string|null }} [opts]
+     * A `round` is the m.public.round a battle was prepared in (`combatRound`); null means the current one, and with
+     * `fallback` an empty current round answers with the most recent round that has a record instead (the round that
+     * just settled, while the next round's first battle is prepared) — what a panel following one player wants.
+     * A `battle` scope has no battle on screen outside the combat phases (a prep, a settle): with `fallback` it then
+     * answers like a `round` read, restricted to the same owner. Such a kept-round answer carries `round` (the round
+     * it actually read), so a panel can name it; a reading of the battle on screen carries none and is unchanged.
+     * `owner: 'watched'` follows the teammate on screen (`watchedOwner`), else the viewer — the panel's default.
+     * `owner: 'watched-last'` also follows one whose replica is already gone (the last watched teammate).
+     * @param {{ scope?: 'battle'|'round'|'match', ownerId?: string|null, round?: number|null, owner?: 'watched'|'watched-last'|'self', fallback?: boolean }} [opts]
      */
-    combatMetrics({ scope = 'match', ownerId = null } = {}) {
+    combatMetrics({ scope = 'match', ownerId = null, round = null, owner = 'self', fallback = false } = {}) {
       const localEntries = [...entries.values(), ...pending.values()];
+      const who = owner === 'watched-last' ? lastWatchedOwner() : owner === 'watched' ? watchedOwner() : ownerId;
+      const ofRound = (r) => (e) => (Number(e.round) || 0) === r;
+      const collect = (r, keys) => {
+        const records = new Map();
+        for (const key of keys) records.set(key, combatHistory.get(key));
+        for (const e of localEntries) {
+          if (r != null && !ofRound(r)(e)) continue;
+          if (!e.combatMetrics) continue;
+          const record = e.combatMetrics();
+          if (!(records.get(e.battleId)?.seconds > record.seconds)) records.set(e.battleId, record);
+        }
+        return combineCombat(records.values(), who);
+      };
+      /** The newest round (at or below `limit`) whose kept records answer for `who` with rows, or null. */
+      const keptRound = (limit) => {
+        const rounds = [...new Set([...combatRound.values()])]
+          .filter((r) => Number.isInteger(r) && (limit == null || r <= limit))
+          .sort((a, b) => b - a);
+        for (const r of rounds) {
+          const result = collect(r, [...combatRound.keys()].filter((k) => (combatRound.get(k) || 0) === r));
+          if (result.rows.length) return { round: r, result };
+        }
+        return null;
+      };
       if (scope === 'battle') {
         // scouting another field must not replace the player's own current battle statistics
-        const e = ownerId == null ? cur : localEntries.filter((entry) => entry.members.includes(ownerId))
+        const e = who == null ? cur : localEntries.filter((entry) => entry.members.includes(who))
           .sort((a, b) => b.seq - a.seq)[0];
-        return combineCombat(e?.combatMetrics ? [e.combatMetrics()] : [], ownerId);
+        const live = combineCombat(e?.combatMetrics ? [e.combatMetrics()] : [], who);
+        // the battle on screen answers byte for byte (the panel shows no round label for it); a read with no owner
+        // (nothing watched) keeps the old behaviour rather than mixing a round's players into one list
+        if (live.rows.length || !fallback || who == null) return live;
+        // no battle of that seat on screen (any non-combat phase): the newest round whose kept record answers for it
+        const kept = keptRound(curRound || null);
+        return kept ? { ...kept.result, round: kept.round } : live;
       }
-      const records = new Map(combatHistory);
-      for (const e of localEntries) if (e.combatMetrics) {
-        const record = e.combatMetrics();
-        if (!(records.get(e.battleId)?.seconds > record.seconds)) records.set(e.battleId, record);
+      if (scope !== 'round') {
+        const roundKeys = [...combatHistory.keys()];
+        const liveKeys = localEntries.filter((e) => e.combatMetrics).map((e) => e.battleId);
+        return collect(null, [...new Set([...roundKeys, ...liveKeys])]);
       }
-      return combineCombat(records.values(), ownerId);
+      let r = Number.isInteger(round) ? round : curRound;
+      const result = collect(r, [...combatRound.keys()].filter((k) => (combatRound.get(k) || 0) === r));
+      if (result.rows.length || !fallback) return result;
+      // a round whose battles are over but whose records are already gone is not the round to show
+      const kept = keptRound(r - 1);
+      return kept ? { ...kept.result, round: kept.round } : result;
     },
+    /**
+     * The rounds the 「本轮」 view may pick (升序): the round the match is in now and every round with a kept record.
+     * The newest of them with a record is the round the panels land on — see combatMetrics' `fallback`.
+     */
+    combatRounds() {
+      const rounds = new Set([curRound]);
+      for (const value of combatRound.values()) rounds.add(value);
+      for (const e of [...entries.values(), ...pending.values()]) rounds.add(Number(e.round) || 0);
+      return [...rounds].sort((a, b) => a - b);
+    },
+    /** The watched teammate's playerId while a replica is on screen, else null (see watchedOwner). */
+    watchedOwner,
+    /** The teammate watched most recently, still named once its replica was dropped (the kept round record answers). */
+    lastWatchedOwner,
     /**
      * The battle on screen as a report attaches it (diag.js): its b.start fields and its game time; null without one.
      * @returns {{ battleId: string, fieldId: string, kind: string, spec: object, time: number|null }|null}

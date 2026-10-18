@@ -1,7 +1,8 @@
 // Observing rules of the client (public/js/battle/observe.js, research 09 §3.1 / §6.3) — the mirror of the server's
-// Match._watchClient: prep boards, no observing while the own normal battle runs, a teammate's field once it is over,
-// the other pair's boss field hidden, eliminated players free; the 联防 / 最终攻势 camera halves and their captions;
-// a reloaded screen that watched a teammate's battle takes the watch back (resumedWatch).
+// Match._watchClient: prep boards, a teammate's field watchable WHILE the own normal battle runs (our deviation from
+// the official 「作战中无法查看队友」) and after it too, the other pair's boss field hidden, eliminated players free; the
+// 联防 / 最终攻势 camera halves and their captions; a reloaded screen that watched a teammate's battle takes the watch
+// back (resumedWatch), but never away from its own live field.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { observeTarget, teammateProgress, cameraLayers, layerCamera, loneHalf, isClientCombat, resumedWatch } from '../../public/js/battle/observe.js';
@@ -9,7 +10,7 @@ import { observeTarget, teammateProgress, cameraLayers, layerCamera, loneHalf, i
 const P = (id, seat, extra = {}) => ({ playerId: id, seat, name: id.toUpperCase(), alive: true, ...extra });
 const pubOf = (phase, fields, players) => ({ phase, combatMode: 'client', fields, players });
 
-test('observeTarget: prep, own battle running / over, boss pairs, eliminated players', () => {
+test('observeTarget: prep, own battle running (watchable — our deviation) / over, boss pairs, eliminated players', () => {
   const players = [P('a', 0), P('b', 1), P('c', 2, { alive: false })];
   assert.equal(isClientCombat(pubOf('PREP', [], players)), true);
   assert.deepEqual(observeTarget(players[1], pubOf('PREP', [], players), 'a'), { fieldId: 'n:b' });
@@ -18,8 +19,11 @@ test('observeTarget: prep, own battle running / over, boss pairs, eliminated pla
     { fieldId: 'n:a', kind: 'normal', players: ['a'], live: liveA },
     { fieldId: 'n:b', kind: 'normal', players: ['b'], live: true, progress: { killed: 3, total: 8, done: false } },
   ], players);
-  assert.match(observeTarget(players[1], combat(true), 'a').reason, /作战中无法查看/);
-  assert.deepEqual(observeTarget(players[1], combat(true), 'a', { ownDone: true }), { fieldId: 'n:b' }, 'the local battle already ended');
+  // the own normal battle still runs: the teammate is watchable anyway (our deviation from the official mode, which
+  // refuses this with 「作战中无法查看队友」 — docs/design/network.md §Spectating)
+  assert.deepEqual(observeTarget(players[1], combat(true), 'a'), { fieldId: 'n:b' }, 'own battle running: watchable (our deviation)');
+  assert.deepEqual(observeTarget(players[1], combat(true), 'a', { ownDone: true }), { fieldId: 'n:b' }, 'ownDone no longer changes the outcome');
+  assert.deepEqual(observeTarget(players[0], combat(true), 'a', { observing: true }), { back: true }, '返回战场 is offered while the own battle still runs');
   assert.deepEqual(observeTarget(players[1], combat(false), 'a'), { fieldId: 'n:b' });
   assert.deepEqual(observeTarget(players[0], combat(false), 'a', { observing: true }), { back: true });
   // the teammate's capsule reads `resolved` (the field's own enemies knocked out or leaked); a report without one falls
@@ -88,4 +92,20 @@ test('resumedWatch: a reload while watching a teammate\'s battle adopts the rese
   assert.deepEqual(resumedWatch(watched, { ...o, pub: { ...pub, phase: 'UNITE' } }), { seen: 'r3-n:b', fieldId: null });
   assert.deepEqual(resumedWatch(watched, { ...o, pub: { ...pub, combatMode: 'server' } }), { seen: 'r3-n:b', fieldId: null });
   assert.deepEqual(resumedWatch({ ...watched, fieldId: 'n:x' }, o), { seen: 'r3-n:b', fieldId: null }, 'a field not listed');
+  // the own normal battle still runs: a reload does NOT adopt the teammate's battle (the own one keeps priority — the
+  // server resends only the watched field, so an adopted teammate battle would leave the own battle unreachable)
+  const liveOwn = pubOf('COMBAT', [
+    { fieldId: 'n:a', kind: 'normal', players: ['a'], live: true },
+    { fieldId: 'n:b', kind: 'normal', players: ['b'], live: true },
+  ], players);
+  assert.deepEqual(resumedWatch(watched, { ...o, pub: liveOwn }), { seen: 'r3-n:b', fieldId: null }, 'own battle live: stay home');
+  // …and once the own battle is over the original flow is back (the `pub` at the top has it over)
+  assert.deepEqual(resumedWatch(watched, { ...o, pub: { ...pub, fields: [{ ...pub.fields[0], live: false }, pub.fields[1]] } }),
+    { seen: 'r3-n:b', fieldId: 'n:b' }, 'own battle over: adopt');
+  // a 联防 / boss own field is not a "normal" own field, so it keeps the original behaviour (the ‹ › camera owns it)
+  const uniteOwn = pubOf('COMBAT', [
+    { fieldId: 'u', kind: 'unite', players: ['a', 'c'], live: true },
+    { fieldId: 'n:b', kind: 'normal', players: ['b'], live: true },
+  ], players);
+  assert.deepEqual(resumedWatch(watched, { ...o, pub: uniteOwn }), { seen: 'r3-n:b', fieldId: 'n:b' }, 'an own 联防 field does not block');
 });

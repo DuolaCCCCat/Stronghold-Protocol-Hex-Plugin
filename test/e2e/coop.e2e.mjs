@@ -15,9 +15,10 @@
 // panel (right-click), bond popup, freeze and unfreeze, watch a teammate's field during prep (前往查看), settings,
 // in-game 玩法说明, ready (click / Space) → 机变 picks →
 // combat rendered by the Pixi engine with units on screen. Combat is client-side (DESIGN §14): each browser simulates
-// its own battle (battle/runner.js) and reports it; no view switcher during normal combat; once a player's own battle is
-// over (⌛ 作战结束，等待队友完成作战 + teammates' progress) a teammate row → 前往查看 shows a local replica of a
-// teammate's running battle and 返回战场 goes back; one forced disconnect mid-combat (the guest's socket drops and
+// its own battle (battle/runner.js) and reports it; no view switcher during normal combat; a teammate row → 前往查看
+// shows a local replica of a teammate's running battle WHILE the own battle runs too (our deviation from the official
+// 「作战中无法查看队友」) and, once the own battle is over (⌛ 作战结束，等待队友完成作战 + teammates' progress), the
+// original flow; 返回战场 goes back either way; one forced disconnect mid-combat (the guest's socket drops and
 // reconnects): the server takes the field over and the guest keeps watching it as a display replica; LP changes are
 // settled from the reported results.
 // Every step checks the DOM against the store (funds, round, LP, deploy counter, shop cards, team rows).
@@ -711,34 +712,60 @@ async function forcedDisconnect(c, srv) {
   return true;
 }
 
+/** The live normal field of another player, and the row index of its owner in the team panel (null when there is none). */
+const otherField = (c) => c.page.evaluate(() => {
+  const s = globalThis.__SP__.store.get();
+  const pub = s.match.public;
+  if (pub?.phase !== 'COMBAT') return null;
+  const f = (pub.fields || []).find((x) => x.kind === 'normal' && x.live && !x.players.includes(s.me.playerId));
+  if (!f) return null;
+  const rows = (pub.players || []).slice().sort((a, b) => a.seat - b.seat).filter((p) => p.playerId !== s.me.playerId);
+  return { fieldId: f.fieldId, nth: rows.findIndex((p) => p.playerId === f.players[0]) };
+});
+
 /**
- * research 09 §3.1: while the own normal battle runs a teammate cannot be observed; once it is over the waiting pill
- * (with the teammates' progress) shows, a teammate row → 前往查看 runs a local replica of a still running teammate
- * battle, and 返回战场 goes back to the own field.
+ * A teammate's battle is observable WHILE the own normal battle runs — our deviation from the official
+ * 「作战中无法查看队友」: the own runner keeps running and the teammate's field is a second display replica; 返回战场
+ * goes straight back. Noted once per run (`did.midWatched`).
+ */
+async function observeMidBattle(c, did) {
+  if (did.midWatched) return false;
+  const s0 = await runnerState(c);
+  if (!s0 || !s0.own || s0.done) return false;
+  const other = await otherField(c);
+  if (!other || other.nth < 0) return false;   // no live teammate field yet: try again next tick
+  did.midWatched = true;
+  await c.click('.team__row:not(.is-self) .team__btn', null, { nth: other.nth, optional: true, timeout: 2000 });
+  const offered = await c.page.waitForSelector('.team__ob', { timeout: 3000 }).then(() => true, () => false);
+  assert.ok(offered, 'own battle running: a teammate row offers 前往查看 (our deviation)');
+  if (!(await c.click('.team__ob', '前往查看', { optional: true, timeout: 3000 }))) { did.midWatched = false; return false; }
+  const ok = await c.page.waitForFunction((fid) => { const s = globalThis.__SP_RUNNER__?.state(); return !!s && s.fieldId === fid && s.watch; },
+    { timeout: 15000 }, other.fieldId).then(() => true, () => false);
+  if (!ok) return false;
+  assert.ok(await c.exists('.chud__observe'), 'observing pill while the own battle runs');
+  const st = await waitUnits(c, 8000);
+  assert.ok(st && st.units > 0, 'the watched battle renders units while the own battle runs');
+  const onScreen = await runnerState(c);
+  assert.equal(onScreen?.own, false, 'the replica, not the own battle, is on screen');
+  await c.shot(`${c.label}-combat-observe-midbattle`);
+  // 返回战场 is offered and goes back to the own field, which never stopped
+  await c.click('.team__back, .chud__back', '返回战场', { optional: true, timeout: 3000 });
+  const back = await c.page.waitForFunction(() => { const s = globalThis.__SP_RUNNER__?.state(); return !!s && s.own && !s.watch; },
+    { timeout: 10000 }).then(() => true, () => false);
+  assert.ok(back, '返回战场 returns to the own running battle');
+  c.note(`mid-battle observe: ${other.fieldId} rendered (${st.units} views) while the own battle ran, and went back`);
+  return true;
+}
+
+/**
+ * Once the own normal battle is over the waiting pill (with the teammates' progress) shows, a teammate row → 前往查看
+ * runs a local replica of a still running teammate battle, and 返回战场 goes back to the own field.
  */
 async function observeAfterFinish(c) {
   const s0 = await runnerState(c);
   if (!s0 || !s0.own) return false;
-  if (!s0.done) {
-    // not yet: tapping a teammate never offers 前往查看 while the own battle runs (checked once)
-    if (!observeAfterFinish.refusedChecked) {
-      observeAfterFinish.refusedChecked = true;
-      await c.click('.team__row:not(.is-self) .team__btn', null, { nth: 0, optional: true, timeout: 2000 });
-      await sleep(300);
-      assert.equal(await c.exists('.team__ob'), false, 'no 前往查看 while the own battle runs');
-      c.note('own battle running: a teammate row offers no 前往查看');
-    }
-    return false;
-  }
-  const other = await c.page.evaluate(() => {
-    const s = globalThis.__SP__.store.get();
-    const pub = s.match.public;
-    if (pub?.phase !== 'COMBAT') return null;
-    const f = (pub.fields || []).find((x) => x.kind === 'normal' && x.live && !x.players.includes(s.me.playerId));
-    if (!f) return null;
-    const rows = (pub.players || []).slice().sort((a, b) => a.seat - b.seat).filter((p) => p.playerId !== s.me.playerId);
-    return { fieldId: f.fieldId, nth: rows.findIndex((p) => p.playerId === f.players[0]) };
-  });
+  if (!s0.done) return false;
+  const other = await otherField(c);
   if (!other || other.nth < 0) return false;
   const pill = await c.page.waitForSelector('.chud__wait', { timeout: 5000 }).then(() => true, () => false);
   if (!pill && (await c.st()).phase !== 'COMBAT') return false; // the round moved on meanwhile
@@ -1031,7 +1058,7 @@ describe('browser E2E against the real server', { skip: !ENABLED && 'needs Chrom
     const host = new Client(P, srv.base, 'host', { prefix: 'coop' });
     const guest = new Client(P, srv.base, 'guest', { w: 1280, h: 720, prefix: 'coop' });
     const both = [host, guest];
-    const did = { watched: false, watchedPrep: false, sold: false, reoriented: false, leveled: false, refreshed: false, froze: false, itemBought: false, equipped: false,
+    const did = { watched: false, midWatched: false, watchedPrep: false, sold: false, reoriented: false, leveled: false, refreshed: false, froze: false, itemBought: false, equipped: false,
       inspected: false, shopDetail: false, bond: false, enemies: -1, info: false, emote: false, moved: false, bench: false, settings: false, guideGame: false,
       reward: 0, sp: 0, unite: false, combatRounds: new Set(), takeover: false, lpChanged: false, settledBy: new Set(), facingTurned: 0 };
     const lps = new Map();
@@ -1205,8 +1232,9 @@ describe('browser E2E against the real server', { skip: !ENABLED && 'needs Chrom
           else did.combatRounds.add(hs.round);
           host.note(`round ${hs.round} ${hs.phase}: ${st.units} views, fps ${st.fps}, spine ${JSON.stringify(st.spine)}`);
           if (hs.phase === 'COMBAT') {
-            // client-side combat: the own battle runs in each browser; no view switcher during normal combat
-            assert.equal(await host.exists('.chud .vswitch__arrow'), false, 'no ‹ › switcher during normal combat');
+            // client-side combat: the own battle runs in each browser; no view switcher during normal combat (the
+            // observing pill alone wears .vswitch too — .chud__observe — so it is excluded here)
+            assert.equal(await host.exists('.chud .vswitch:not(.chud__observe) .vswitch__arrow'), false, 'no ‹ › switcher during normal combat');
             for (const c of both) {
               await c.page.waitForFunction(() => { const s = globalThis.__SP_RUNNER__?.state(); return !!s && !s.loading && s.kind === 'normal'; }, { timeout: 15000 }).catch(() => {});
               const rs = await runnerState(c);
@@ -1214,12 +1242,17 @@ describe('browser E2E against the real server', { skip: !ENABLED && 'needs Chrom
               did.facingTurned += await checkFacingChain(c);
             }
             if (!did.takeover && hs.round >= 2) did.takeover = await forcedDisconnect(guest, srv);
-            // wait for either human's own battle to end while a teammate still fights, then observe it
+            // wait for either human's own battle to end while a teammate still fights, then observe it; meanwhile a
+            // living player looks at a teammate's running battle (our deviation) and 返回战场 goes back to its own
             const t1 = Date.now();
-            while (!did.watched && Date.now() - t1 < 120000) {
+            while ((!did.watched || !did.midWatched) && Date.now() - t1 < 120000) {
               const cs = await host.st();
               if (cs.phase !== 'COMBAT' || cs.round !== hs.round) break;
-              for (const c of both) if (!did.watched) did.watched = await observeAfterFinish(c);
+              for (const c of both) {
+                if (!did.midWatched) await observeMidBattle(c, did);
+                if (!did.watched) did.watched = await observeAfterFinish(c);
+                if (did.watched && did.midWatched) break;
+              }
               await sleep(400);
             }
           } else if (hs.phase === 'UNITE') {
@@ -1263,7 +1296,7 @@ describe('browser E2E against the real server', { skip: !ENABLED && 'needs Chrom
       for (const [label, v] of lps) assert.ok(v.lp > 0 && v.lp <= 60, `${label} LP settled (${v.lp})`);
       assert.ok(!srv.logs.some((l) => /rejected client result/.test(l)), 'no client result was rejected');
       assert.equal(rstats.errors, 0, 'the local simulation never failed');
-      for (const k of ['watched', 'watchedPrep', 'sold', 'reoriented', 'refreshed', 'froze', 'leveled', 'inspected', 'shopDetail', 'bond', 'emote', 'moved', 'bench', 'settings', 'guideGame', 'info']) {
+      for (const k of ['watched', 'midWatched', 'watchedPrep', 'sold', 'reoriented', 'refreshed', 'froze', 'leveled', 'inspected', 'shopDetail', 'bond', 'emote', 'moved', 'bench', 'settings', 'guideGame', 'info']) {
         assert.ok(did[k], `did ${k}`);
       }
       assert.ok(did.enemies >= 0, 'enemy drawer opened');

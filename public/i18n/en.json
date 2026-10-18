@@ -2188,5 +2188,11 @@
   "删除这台浏览器里、当前服务器版本已经用不到的导入素材；仍在使用的会保留。": "Delete the imported assets in this browser that this server's current version no longer uses; the ones still in use stay.",
   "已清理 {n} 个旧版本文件。": "Cleared {n} old-version files.",
   "没有需要清理的旧版本文件。": "No old-version files to clear.",
-  "读不到服务器的素材清单，没有删除任何文件。": "Could not read the server's asset lists; nothing was deleted."
+  "读不到服务器的素材清单，没有删除任何文件。": "Could not read the server's asset lists; nothing was deleted.",
+  "本轮": "This round",
+  "查看谁的数据": "Whose numbers",
+  "正在观战 {name} · 数据来自本机运行的观战副本": "Watching {name} · from the replica simulated here",
+  "仅统计本机的战斗 · 同名干员合并 · 召唤物计入所属干员": "This machine's battles only · Same-name operators combined · Summons count toward their operator",
+  "实际扣血 / 有效治疗，DPS / HPS 按该玩家的战斗秒数计算。刷新后重新累计。": "Effective HP loss / effective healing; DPS / HPS use that player's battle seconds. A reload starts over.",
+  "最近记录": "Latest record"
 }

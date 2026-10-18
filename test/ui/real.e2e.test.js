@@ -10,8 +10,9 @@
 // hand pieces onto legal board tiles and choose a direction on the deploy wheel (g.move carries `dir`), sell a unit by
 // tapping it → underframe 出售 +N, level up (two taps), refresh, freeze/unfreeze, equip bought items by dragging them
 // onto a unit, ready (mouse / keyboard) → 机变 picks → combat rendered by the Pixi engine with real Spine units (client-
-// side combat: no view switcher); once a human's own battle is over, a teammate row → 前往查看 shows that teammate's
-// running battle and 返回战场 goes back (research 09 §3.1) → … until combat of round SP_REAL_ROUNDS (default 4).
+// side combat: no view switcher); a teammate row → 前往查看 shows that teammate's running battle while the own battle
+// runs (our deviation from the official 「作战中无法查看队友」) and after it, and 返回战场 goes back → … until combat of
+// round SP_REAL_ROUNDS (default 4).
 // Solo: 独立模拟 (标准), free band pick, two rounds with shopping and deployment, then 放弃模拟 back to the lobby.
 // Every page must finish with zero console errors, page errors, failed requests or HTTP errors.
 // Screenshots: test/e2e/out/real-*.png.
@@ -605,8 +606,9 @@ describe('real server + real browsers', { skip: !ENABLED && 'set SP_REAL_E2E=1 (
           await host.shot(`combat-r${hs.round}${hs.phase === 'UNITE' ? '-unite' : ''}`);
           await guest.shot(`combat-r${hs.round}${hs.phase === 'UNITE' ? '-unite' : ''}-720`);
           host.note(`round ${hs.round} ${hs.phase}: ${st.units} views, fps ${st.fps}, spine ${JSON.stringify(st.spine)}`);
-          // research 09 §3.1: no view switcher in normal combat; after the own battle ends, a teammate row → 前往查看
-          if (hs.phase === 'COMBAT') assert.equal(await host.exists('.chud .vswitch__arrow'), false, 'no ‹ › switcher during normal combat');
+          // No view switcher in normal combat (the observing pill alone wears .vswitch too — .chud__observe — so it is
+          // excluded); a teammate row → 前往查看 works while the own battle runs (our deviation) and after it.
+          if (hs.phase === 'COMBAT') assert.equal(await host.exists('.chud .vswitch:not(.chud__observe) .vswitch__arrow'), false, 'no ‹ › switcher during normal combat');
           const tObs = Date.now();
           while (!did.watched && hs.phase === 'COMBAT' && Date.now() - tObs < 90000) {
             const cs = await host.st();

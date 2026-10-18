@@ -231,8 +231,10 @@ function MatchScreen() {
   // 作战统计 (battle/metrics.js): a client-only local damage/healing panel — never uploaded to the server.
   // Off unless the setting is on. A gameplay-plugin room (modRoom: content.vanilla === false) is simulated in a
   // Worker, which has no damaged/heal data, so the button stays hidden. The hud.right ui-slot is not this gate.
+  // A spectator sees it too (community report: watching a teammate's battle and reading its damage): the panel then
+  // follows the teammate on screen (`owner: 'watched'`) instead of the viewer, whose own battle may be over already.
   const [metricsOpen, setMetricsOpen] = useState(false);
-  const showMetrics = metricsSetting && !modRoom && !spectator;
+  const showMetrics = metricsSetting && !modRoom;
   useEffect(() => { if (!showMetrics) setMetricsOpen(false); }, [showMetrics]);
   const [emoteOpen, setEmoteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -283,6 +285,10 @@ function MatchScreen() {
   }, [alive, !!(priv || meP)]);
   const home = homeFieldId(pub, myId);
   const watchingOther = !!watching && watching !== home && watching !== ownFieldId(myId);
+  // The field a panel follows when it reads "the battle on screen": the one picked with 前往查看, else a field the screen
+  // is on without having picked it — an eliminated player or a spectator seat is auto-followed onto a teammate's field
+  // (Match._followScout in prep, the server's watcher in combat) and `watching` stays null for that.
+  const watchedFieldId = watching || (field && field.fieldId !== home ? field.fieldId : null);
   // watching a teammate's prep board: the 本局信息 drawer shows THEIR 策略 in place of one's own (user playtest #2 item 2)
   const scoutPid = watchingOther && field?.prep && typeof field.fieldId === 'string' && field.fieldId.startsWith('n:') ? field.fieldId.slice(2) : null;
   const scoutBandId = scoutPid ? ownerBandId(pub, scoutPid) : null;
@@ -1735,7 +1741,7 @@ function MatchScreen() {
       <div class="ui-slot gm__ui-slot" data-ui-slot="hud.right" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
 
       <div class="gm__corner">
-        ${showMetrics && metricsOpen ? html`<${CombatMetricsPanel} myId=${myId} onClose=${() => setMetricsOpen(false)} />` : null}
+        ${showMetrics && metricsOpen ? html`<${CombatMetricsPanel} myId=${myId} watching=${watchedFieldId} onClose=${() => setMetricsOpen(false)} />` : null}
         ${spectator ? null : html`<${EmoteWheel} open=${emoteOpen} onToggle=${setEmoteOpen} onSend=${(id) => actions.emote(id)} disabled=${conn.status !== 'online'} />`}
         ${showMetrics ? html`<button type="button" class="gm__gear gm__metrics" aria-label=${t('作战统计')} title=${t('作战统计')} aria-expanded=${metricsOpen}
           aria-controls="combat-metrics-panel" onKeyDown=${(e) => { if (e.key === ' ') e.stopPropagation(); }} onClick=${() => {

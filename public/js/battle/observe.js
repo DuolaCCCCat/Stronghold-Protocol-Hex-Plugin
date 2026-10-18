@@ -1,11 +1,14 @@
 // Observing rules and labels of client-side combat (research 09 §3.1 / §6.3, DESIGN §14 "Spectating") — pure helpers
 // for the game screen, the team panel and the combat HUD (mirror of server/match/match/watch.js _watchClient):
 //   * prep (休整期): tap a teammate → 前往查看 → their board (read-only);
-//   * own normal battle running: no observing ("当前无法查看");
+//   * own normal battle running: a teammate's battle is watchable too — OUR DEVIATION from the official mode (official
+//     「作战中无法查看队友」, research 09 §3.1). Watching then runs a second battle replica beside the own one; the own
+//     runner keeps running and 返回战场 goes straight back;
 //   * own battle over: "⌛ 作战结束，等待队友完成作战" + the teammates' progress; tap a teammate → 前往查看 → a local
 //     replica of their battle; 返回战场 goes back;
 //   * 联防 / 最终攻势: the ‹ › pill switches the camera LEFT half / 全景 / RIGHT half of the own field; the other pair's
-//     boss field is never shown to a fighting player;
+//     boss field is never shown to a fighting player (official 「无法查看另一组队友的战场情况」 — NOT part of that
+//     deviation, it is a rule of its own);
 //   * eliminated: anything — each phase reset starts on the player it follows (the server's prep scout / b.start,
 //     followedScout).
 
@@ -34,13 +37,20 @@ export function nameOf(pub, playerId) {
 
 /**
  * What tapping a team row does: `{ back: true }` (own row while observing), `{ fieldId }` to observe, or `{ reason }`.
+ *
+ * Watching is allowed while the own normal battle still runs (our deviation from the official 「作战中无法查看队友」):
+ * the viewer's own field keeps its authority and its runner, and the teammate's field is drawn as a second display
+ * replica. The server admits it too (Match._watchClient). The other pair's boss / hidden field stays refused to a
+ * fighting player — that is a different official rule and is preserved.
  * @param {any} p m.public player row
  * @param {any} pub
  * @param {string} myId
- * @param {{ observing?: boolean, ownDone?: boolean }} [o] ownDone: the local simulation of the own battle already ended
- *   (its result is on the way to the server)
+ * @param {{ observing?: boolean, ownDone?: boolean }} [o] observing: this viewer already watches a teammate (the own
+ *   row then offers 返回战场). `ownDone` is no longer consulted — kept in the signature for the call sites that still
+ *   pass it (the local replica's outcome), it does not change the outcome any more.
  */
 export function observeTarget(p, pub, myId, { observing = false, ownDone = false } = {}) {
+  void ownDone;
   if (!isObj(p)) return { reason: t('无效的目标') };
   if (p.playerId === myId) return observing ? { back: true } : { reason: null };
   if (p.alive === false || p.status === 'left') return { reason: t('该队友已被淘汰，无法查看') };
@@ -54,19 +64,24 @@ export function observeTarget(p, pub, myId, { observing = false, ownDone = false
   if (!meAlive || !own) return { fieldId: target.fieldId };
   if (own.fieldId === target.fieldId) return { reason: t('队友与你在同一战场，使用 ‹ › 切换视角') };
   if (target.kind === 'boss' || target.kind === 'hidden') return { reason: t('无法查看另一组队友的战场') };
-  if (own.kind === 'normal' && own.live !== false && !ownDone) return { reason: t('作战中无法查看队友，作战结束后可前往查看') };
   return { fieldId: target.fieldId };
 }
 
 /**
- * A screen reloaded (or a socket reconnected) while it watched a teammate's battle after the own one: the server
- * resends the watched field (Match._resendBattle, b.start `watch: true`), but a fresh screen starts at home — so the
- * observing pill, 返回战场 and the own row would be missing. Decided once per battle, at the first sight of its
- * battleId (`seen` = the battleId already decided): adopt `fieldId` as the watched field when it is a teammate's normal
- * battle in 各自行动 shown to a living player who watches nothing. Never for a battle first seen while watching (a
- * 前往查看 under way — and its 返回战场 must not bring it back while the own b.start is on its way), the own field, a
- * 联防 leaker's field or an eliminated player's auto-observed one (those keep their own rules). A loading battle (its
- * state carries no `watch` yet) is decided once it runs, unless the screen already watches (then it is marked seen).
+ * A screen reloaded (or a socket reconnected) while it watched a teammate's battle: the server resends the watched
+ * field (Match._resendBattle, b.start `watch: true`), but a fresh screen starts at home — so the observing pill,
+ * 返回战场 and the own row would be missing. Decided once per battle, at the first sight of its battleId (`seen` = the
+ * battleId already decided): adopt `fieldId` as the watched field when it is a teammate's normal battle in 各自行动
+ * shown to a living player who watches nothing. Never for a battle first seen while watching (a 前往查看 under way —
+ * and its 返回战场 must not bring it back while the own b.start is on its way), the own field, a 联防 leaker's field or
+ * an eliminated player's auto-observed one (those keep their own rules). A loading battle (its state carries no `watch`
+ * yet) is decided once it runs, unless the screen already watches (then it is marked seen).
+ *
+ * Watching while the own normal battle runs is allowed, so the own LIVE field takes priority here: `_resendBattle`
+ * sends the watched teammate's field first (the `watchers` entry), and if that were adopted on a reload the viewer's own
+ * running battle — whose b.start is not resent to a screen that watches somebody else — would be unreachable. So a
+ * reload goes home whenever the own normal field is still live; 前往查看 is one tap away again. (An own field that
+ * already ended does not block: that is the original 「after the own battle」 flow.)
  * @param {any} b battleRunner.state() @param {{ pub?: any, myId?: string, alive?: boolean, watching?: string|null,
  *   seen?: string|null }} [o]
  * @returns {{ seen: string|null, fieldId: string|null }} seen: the new value to remember
@@ -80,6 +95,9 @@ export function resumedWatch(b, { pub = null, myId = '', alive = true, watching 
   if (!b.watch || b.kind !== 'normal' || typeof b.fieldId !== 'string' || !b.fieldId) return done;
   const f = fields(pub).find((x) => x.fieldId === b.fieldId);
   if (!f || f.kind !== 'normal' || !Array.isArray(f.players) || f.players.includes(myId)) return done;
+  // the own normal battle still runs: stay home (see the header)
+  const own = fieldOf(pub, myId);
+  if (own && own.kind === 'normal' && own.live !== false) return done;
   return { seen: b.battleId, fieldId: b.fieldId };
 }
 

@@ -99,7 +99,9 @@ async function driveLoop(c, { skipOnce = false, until, stats }) {
       done.add(`prep:${pub.round}`);
       await prep(c, stats);
     } else if (pub.phase === 'COMBAT' && !done.has(`watch:${pub.round}`)) {
-      // research 09 §3.1: a teammate's battle can be observed only after the own battle is over
+      // A teammate's battle is observable while the own one still runs too (our deviation from the official
+      // 「作战中无法查看队友」): the watch is granted and the own field keeps its authority — so the own field is
+      // restored right after, like 返回战场 does.
       const own = pub.fields.find((f) => f.players.includes(c.id));
       const other = pub.fields.find((f) => f.kind === 'normal' && !f.players.includes(c.id) && f.live);
       if (!other) continue;
@@ -107,7 +109,10 @@ async function driveLoop(c, { skipOnce = false, until, stats }) {
         if (!done.has(`early:${pub.round}`)) {
           done.add(`early:${pub.round}`);
           const r = await c.request({ t: 'g.watch', fieldId: other.fieldId });
-          if (r.t === 'error') { assert.equal(r.code, 'WRONG_PHASE'); stats.refused++; }
+          assert.equal(r.t, 'ok', `a teammate is watchable while the own battle runs: ${JSON.stringify(r)}`);
+          stats.watches.push(other.fieldId);
+          const back = await c.request({ t: 'g.watch', fieldId: own.fieldId });
+          assert.equal(back.t, 'ok', `返回战场: ${JSON.stringify(back)}`);
         }
         continue;
       }
@@ -172,7 +177,7 @@ test('real-time co-op over websockets with the real simulation: 2 humans + 2 AI 
   assert.equal((await a.request({ t: 'room.start' })).t, 'ok');
 
   const reached = (c) => { const p = latest(c, 'm.public'); return !!p && ((p.phase === 'PREP' && p.round >= 4) || p.phase === 'RESULT' || p.round > 4); };
-  const stats = { a: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [], refused: 0 }, b: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [], refused: 0 } };
+  const stats = { a: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [] }, b: { skips: 0, skipTries: 0, bands: 0, bandTimeouts: 0, cards: 0, buys: 0, placed: 0, readies: 0, watches: [] } };
   // snapshot of the prep → combat transitions the clients saw
   await Promise.all([
     drive(a, { skipOnce: true, until: () => reached(a), stats: stats.a }),
