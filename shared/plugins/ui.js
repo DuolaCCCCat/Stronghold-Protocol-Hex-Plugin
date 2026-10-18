@@ -63,9 +63,16 @@ export const UI_LIMITS = Object.freeze({
   storageBytes: 32 * 1024,
   heightMin: 48,
   heightMax: 480,
+  /** A placed frame (the `frame` message): its own box, clamped inside the play area (the match screen). */
+  frameMinWidth: 48,
+  frameMaxWidth: 640,
+  frameMinHeight: 48,
+  frameMaxHeight: 480,
   noticeChars: 80,
   /** Distinct notices, per plugin. The same text is not delayed (the toast host merges it). */
   noticeIntervalMs: 2000,
+  /** Messages one frame may post while its entry is still loading; held, then applied at that load (never a leave). */
+  heldMessages: 32,
   maxPlugins: 8,
   /** [ASSUMED] connection pushes, after the first, at most once a second. */
   netHz: 1,
@@ -82,12 +89,87 @@ export const UI_ERRORS = Object.freeze({
   PLUGIN_LIMIT: 'PLUGIN_LIMIT',
 });
 
-/** Plugin → host, postMessage API v1. Anything else is refused. `stats` is a read of the battle on screen, never `g.unitStats`. */
-export const UI_PLUGIN_MESSAGES = Object.freeze(['ready', 'slot', 'resize', 'storage', 'notice', 'stats']);
-/** Host → plugin, postMessage API v1. */
-export const UI_HOST_MESSAGES = Object.freeze(['welcome', 'state', 'battle', 'stats', 'storage', 'limit', 'slot', 'rejected', 'result', 'net']);
+/**
+ * Plugin → host, postMessage API v1. Anything else is refused. `stats` is a read of the battle on screen, never
+ * `g.unitStats`. `frame` moves the plugin's own frame inside the play area; `effect` names one known, reversible
+ * host visual (a placed frame is the plugin's own box, never a style channel).
+ */
+export const UI_PLUGIN_MESSAGES = Object.freeze(['ready', 'slot', 'resize', 'frame', 'effect', 'storage', 'notice', 'stats']);
+/** Host → plugin, postMessage API v1. `frame` answers a plugin `frame` with the clamped rect (and the play area's size). */
+export const UI_HOST_MESSAGES = Object.freeze(['welcome', 'state', 'battle', 'frame', 'stats', 'storage', 'limit', 'slot', 'rejected', 'result', 'net']);
 const PLUGIN_TYPES = new Set(UI_PLUGIN_MESSAGES);
 const HOST_TYPES = new Set(UI_HOST_MESSAGES);
+
+/**
+ * The host visuals a ui plugin may name (DESIGN §32.8, docs/PLUGINS.md §14). Three known names, never a style:
+ * `dj-rotate` adds a reversible class to the battle HUD and turns each field view's root container
+ * (`public/js/ui/pluginFrame.js`, `public/css/screens/game.css`, `public/js/render/djRotate.js`); `units-gif` swaps
+ * every unit on the field for an animated GIF stand-in (`public/js/ui/pluginFrame.js` →
+ * `public/js/render/unitsGif.js`, visibility only, destroyed on off). `units-gif` takes the optional `variant`
+ * (the strategy, `UI_UNIT_VARIANTS`: one sheet, or one per unit).
+ * `dj-neon` is the host's night-club lighting: two decorative layers over the match (a rim rainbow and coloured
+ * blobs, `pointer-events: none`, CSS animations only), removed whole on off.
+ * `dj-rotate` takes the optional `tune` (below): the reference's three numbers, overridable per plugin.
+ */
+export const UI_EFFECTS = Object.freeze(['dj-rotate', 'units-gif', 'dj-neon']);
+
+/**
+ * The controlled tuning a `dj-rotate` message may carry (`tune`): the same three numbers the host's own halves use
+ * (`public/css/screens/game.css`, `public/js/render/djRotate.js`) — `turn` seconds per turn, `squash` the fraction of
+ * the height the pulse takes away, `pulse` seconds per pulse. One known key each, bounded so a typo (`turn: 1e9`) or a
+ * decimal point in the wrong place is `PLUGIN_SHAPE` rather than a frozen or invisible interface. Absent = the
+ * reference mod's own default (1.116667 s, 40%, .633333 s), which is also what the stylesheet alone draws. The values
+ * are the requester's: the host remembers them on that plugin's own record, so one plugin's look never rewrites the
+ * defaults another one gets.
+ */
+export const UI_ROTATE_TUNE = Object.freeze({
+  /** seconds per turn: the reference's 1.116667 s, ± a factor of ~4 */
+  turn: Object.freeze({ min: 0.25, max: 4.5 }),
+  /** the fraction of the height the pulse takes away (the reference's 40%); 0.9 is the deepest it may go */
+  squash: Object.freeze({ min: 0, max: 0.9 }),
+  /** seconds per squash pulse: the reference's .633333 s, ± a factor of ~4 */
+  pulse: Object.freeze({ min: 0.15, max: 3 }),
+});
+
+/**
+ * A `dj-rotate` `tune` object, read off the message: at least one of `turn` / `squash` / `pulse`, each a finite number
+ * inside its own window (`UI_ROTATE_TUNE`). `null` when it is not one — the caller answers PLUGIN_SHAPE.
+ * @param {unknown} tune
+ * @returns {{ turn?: number, squash?: number, pulse?: number } | null}
+ */
+export function normalizeRotateTune(tune) {
+  if (!isObj(tune)) return null;
+  const keys = Object.keys(tune);
+  if (!keys.length) return null;
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const k of keys) {
+    const win = UI_ROTATE_TUNE[k];
+    if (!win) return null;
+    const v = finite(tune[k]);
+    if (v === null || v < win.min || v > win.max) return null;
+    out[k] = v;
+  }
+  return /** @type {{ turn?: number, squash?: number, pulse?: number }} */ (out);
+}
+
+/**
+ * The stand-in strategies a `units-gif` message may name (the host's own art, `public/img/dj-units/`):
+ * `amiya2` — the default, and the one dj-amiya has always drawn — uses that one sheet for the whole field;
+ * `mix` gives every unit its own sheet (`amiya2` or `prss`, assigned once when the unit appears from the session's
+ * seed and kept while it is on the field), so the two GIFs interleave on the board. `variant` is a controlled
+ * parameter of the effect message — one known name, absent means `amiya2`, any other value is PLUGIN_SHAPE.
+ */
+export const UI_UNIT_VARIANTS = Object.freeze(['amiya2', 'mix']);
+
+/**
+ * The fixed-sheet strategies a `units-gif` message may name with its `strategy` field. `amiya` pins the whole field to
+ * the FIRST Amiya sheet the host ever shipped (`public/img/dj-units/amiya.png`, the 27-frame sheet) — a strategy of its
+ * own so a plugin asks for that art without knowing a sheet name, and so `variant` keeps meaning what it always did
+ * (`amiya2` | `mix`). One known name; absent = the `variant` / default path; any other value is PLUGIN_SHAPE, and
+ * `strategy` may not be combined with `variant`.
+ */
+export const UI_UNIT_STRATEGIES = Object.freeze(['amiya']);
 
 /**
  * A client→server type (shared/protocol.js C2S): hello, ping, room.*, g.*, b.*.
@@ -148,6 +230,41 @@ export function validatePluginMessage(raw) {
   if (t === 'resize') {
     if (!allow(['v', 't', 'height']) || finite(raw.height) === null) return { ok: false, reason: 'shape' };
     return { ok: true, msg: { v: 1, t, height: /** @type {number} */ (raw.height) } };
+  }
+  if (t === 'frame') {
+    // (x, y) is the frame's top-left in the play area (the match screen, CSS px); w/h are the box it wants.
+    // The host clamps; a string, NaN or Infinity is a bad shape, never a silent 0.
+    if (!allow(['v', 't', 'x', 'y', 'w', 'h'])) return { ok: false, reason: 'shape' };
+    if (finite(raw.x) === null || finite(raw.y) === null) return { ok: false, reason: 'shape' };
+    if (raw.w !== undefined && finite(raw.w) === null) return { ok: false, reason: 'shape' };
+    if (raw.h !== undefined && finite(raw.h) === null) return { ok: false, reason: 'shape' };
+    return { ok: true, msg: { v: 1, t, x: /** @type {number} */ (raw.x), y: /** @type {number} */ (raw.y), w: finite(raw.w), h: finite(raw.h) } };
+  }
+  if (t === 'effect') {
+    // One known name, a boolean switch. Not a style channel: the host maps the name to its own class. `units-gif` also
+    // takes one controlled `variant` (a strategy: one sheet, or one per unit) OR one fixed-sheet `strategy` (`amiya`);
+    // `dj-rotate` takes one controlled `tune` (three bounded numbers); `dj-neon` takes none of them.
+    if (!allow(['v', 't', 'name', 'on', 'variant', 'strategy', 'tune'])) return { ok: false, reason: 'shape' };
+    if (typeof raw.name !== 'string' || !UI_EFFECTS.includes(raw.name)) return { ok: false, reason: 'shape' };
+    if (typeof raw.on !== 'boolean') return { ok: false, reason: 'shape' };
+    if (raw.strategy !== undefined) {
+      if (raw.name !== 'units-gif') return { ok: false, reason: 'shape' };
+      if (raw.variant !== undefined) return { ok: false, reason: 'shape' };
+      if (typeof raw.strategy !== 'string' || !UI_UNIT_STRATEGIES.includes(raw.strategy)) return { ok: false, reason: 'shape' };
+      return { ok: true, msg: { v: 1, t, name: raw.name, on: raw.on, strategy: raw.strategy } };
+    }
+    if (raw.variant !== undefined) {
+      if (raw.name !== 'units-gif') return { ok: false, reason: 'shape' };
+      if (typeof raw.variant !== 'string' || !UI_UNIT_VARIANTS.includes(raw.variant)) return { ok: false, reason: 'shape' };
+      return { ok: true, msg: { v: 1, t, name: raw.name, on: raw.on, variant: raw.variant } };
+    }
+    if (raw.tune !== undefined) {
+      if (raw.name !== 'dj-rotate') return { ok: false, reason: 'shape' };
+      const tune = normalizeRotateTune(raw.tune);
+      if (!tune) return { ok: false, reason: 'shape' };
+      return { ok: true, msg: { v: 1, t, name: raw.name, on: raw.on, tune } };
+    }
+    return { ok: true, msg: { v: 1, t, name: raw.name, on: raw.on } };
   }
   if (t === 'notice') {
     if (!allow(['v', 't', 'text']) || typeof raw.text !== 'string') return { ok: false, reason: 'shape' };
@@ -298,6 +415,46 @@ export function clampHeight(n) {
   if (typeof n !== 'number' || !Number.isFinite(n)) return null;
   return Math.max(UI_LIMITS.heightMin, Math.min(UI_LIMITS.heightMax, Math.round(n)));
 }
+
+/**
+ * A `frame` message's box inside the play area: whole pixels, at most `frameMaxWidth`×`frameMaxHeight`, and fully
+ * inside `areaW`×`areaH` (x/y are moved, the size is capped). null when the request is not a box or there is no area.
+ * [ASSUMED] the area is the match screen; a frame smaller than the minimum grows to it, one larger is cut to the cap.
+ * @param {{ x?: unknown, y?: unknown, w?: unknown, h?: unknown }} box
+ * @param {number} areaW
+ * @param {number} areaH
+ * @returns {{ x: number, y: number, w: number, h: number } | null}
+ */
+export function clampFrame(box, areaW, areaH) {
+  if (!isObj(box)) return null;
+  const x = finite(box.x);
+  const y = finite(box.y);
+  const w0 = finite(box.w);
+  const h0 = finite(box.h);
+  if (x === null || y === null || w0 === null || h0 === null) return null;
+  if (!(areaW > 0) || !(areaH > 0)) return null;
+  const aw = Math.round(areaW);
+  const ah = Math.round(areaH);
+  const w = Math.round(Math.max(1, Math.min(aw, UI_LIMITS.frameMaxWidth, Math.max(UI_LIMITS.frameMinWidth, w0))));
+  const h = Math.round(Math.max(1, Math.min(ah, UI_LIMITS.frameMaxHeight, Math.max(UI_LIMITS.frameMinHeight, h0))));
+  return {
+    x: Math.round(Math.max(0, Math.min(aw - w, x))),
+    y: Math.round(Math.max(0, Math.min(ah - h, y))),
+    w,
+    h,
+  };
+}
+
+/**
+ * The host's answer to a `frame` message (and the frame's place when it is first mounted): the clamped rect plus the
+ * play area's size, so a plugin can remember its place as a fraction and restore it on a smaller window.
+ * @param {{ x: number, y: number, w: number, h: number }} frame
+ * @param {number} areaW
+ * @param {number} areaH
+ */
+export const hostFrame = (frame, areaW, areaH) => ({
+  v: UI_API, t: 'frame', x: frame.x, y: frame.y, w: frame.w, h: frame.h, areaW: Math.round(areaW), areaH: Math.round(areaH),
+});
 
 /** @param {unknown} notice @returns {string | null} */
 export function clampNotice(notice) {
@@ -516,13 +673,16 @@ export function framePageUrl(id, entry, sha256) {
 
 /**
  * What the host does with the iframe's Nth `load` (1-based).
- * 1 — the entry HTML. `welcome` may be posted, and `ready` may be accepted.
+ * 0 — the entry has not finished loading yet. A page's own script runs (and posts) before its own `load` (a picture or
+ *     a font of the page may still be loading): those messages are held, never read as a leave.
+ * 1 — the entry HTML. `welcome` may be posted, `ready` may be accepted, the held messages are applied.
  * anything else — the frame navigated away from the entry. Destroy it, clear `ready`, post nothing.
  * `postMessage(..., 'null')` cannot tell the entry document from a later opaque one, so the count is the check.
  * @param {number} loadCount
- * @returns {'entry' | 'destroy'}
+ * @returns {'loading' | 'entry' | 'destroy'}
  */
 export function frameLoadDecision(loadCount) {
+  if (!(loadCount > 0)) return 'loading';
   return loadCount === 1 ? 'entry' : 'destroy';
 }
 

@@ -207,10 +207,12 @@ export const isPackId = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9.
 export const isPluginId = (v) => typeof v === 'string' && /^[a-z0-9][a-z0-9-]{1,31}$/.test(v);
 
 /**
- * The slots a ui plugin may ask the host for (DESIGN §32.8). [ASSUMED] these four. The protocol table grants one
+ * The slots a ui plugin may ask the host for (DESIGN §32.8). [ASSUMED] these seven. The protocol table grants one
  * plugin per slot at a time; the match shows tabs when several ask for the same one (public/js/ui/pluginFrame.js).
+ * `hud.right`, `hud.left`, `hud.left2` and `hud.left3` are the battle screen's bottom-left stack (all default there,
+ * staggered), so four in-match buttons can sit above one another without sharing a slot.
  */
-export const UI_SLOT_IDS = Object.freeze(['hud.right', 'result.tab', 'stats.tab', 'room.panel']);
+export const UI_SLOT_IDS = Object.freeze(['hud.right', 'hud.left', 'hud.left2', 'hud.left3', 'result.tab', 'stats.tab', 'room.panel']);
 
 /**
  * A path inside a pack or plugin folder ('ui.json', 'img/a.png'): relative, '/'-separated, no '.' / '..' / hidden /

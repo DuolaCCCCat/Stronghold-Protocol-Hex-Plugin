@@ -21,7 +21,7 @@ import { RULE_NAMES } from './rules.js';
 import { PATCH_OPS } from './patch.js';
 import { RECORD_SCHEMA } from './recordsSchema.js';
 import { ASSET_CONTAINERS } from './visual.js';
-import { UI_HOST_MESSAGES, UI_PLUGIN_MESSAGES } from './ui.js';
+import { UI_EFFECTS, UI_HOST_MESSAGES, UI_PLUGIN_MESSAGES } from './ui.js';
 import { PLUGIN_ERRORS } from './errors.js';
 import { CATALOG_ENTRY_FIELDS, CATALOG_FIELDS } from './catalog.js';
 import { SDK_ID, SDK_MEMBERS } from './sdk.js';
@@ -118,7 +118,12 @@ export function buildSurface(extra = {}) {
     'manifest.field.notices', 'error.PLUGIN_THEME_NAME', 'error.PLUGIN_THEME_VALUE', 'error.PLUGIN_THEME_LIMIT', 'error.PLUGIN_THEME_SHAPE',
     'error.PLUGIN_NOTICE_SHAPE', 'error.PLUGIN_NOTICE_LIMIT', 'error.PLUGIN_NOTICE_TEXT', 'error.PLUGIN_NOTICE_LANG',
     'studio.route.POST /studio/api/console/options', 'studio.route.POST /studio/api/console/build',
-    'manifest.field.rules', 'error.PLUGIN_RULE_CONFLICT', 'error.PLUGIN_RULES', ...RULE_NAMES.map((name) => `rule.${name}`)]);
+    'manifest.field.rules', 'error.PLUGIN_RULE_CONFLICT', 'error.PLUGIN_RULES', ...RULE_NAMES.map((name) => `rule.${name}`),
+    // the host surface's own additions on this line: a placed frame, the three host visuals, and the slot stack
+    // (docs/PLUGIN-API.md, shared/plugins/ui.js UI_EFFECTS / UI_PLUGIN_MESSAGES, manifest.js UI_SLOT_IDS)
+    'ui.message.plugin.frame', 'ui.message.plugin.effect', 'ui.message.host.frame',
+    'ui.effect.dj-rotate', 'ui.effect.units-gif', 'ui.effect.dj-neon',
+    'ui.slot.hud.left', 'ui.slot.hud.left2', 'ui.slot.hud.left3']);
   const add = (name, group, stability, anchor, since) => rows.push({ name, group, stability, since: since ?? (added031.has(name) ? '0.3.1' : SURFACE_SINCE), anchor });
   for (const field of MANIFEST_FIELDS) add(`manifest.field.${field}`, 'manifest', EXPERIMENTAL_FIELDS.has(field) ? 'experimental' : 'stable', 'shared/plugins/manifest.js#MANIFEST_FIELDS');
   for (const name of RULE_NAMES) add(`rule.${name}`, 'rule', 'stable', 'shared/plugins/rules.js#RULE_SWITCHES');
@@ -133,6 +138,7 @@ export function buildSurface(extra = {}) {
   for (const [group, key] of DSL_GROUPS) for (const name of dsl[key] || []) add(`dsl.${group}.${name}`, 'dsl', 'stable', `server/sim/content/dsl/vocab.js#${key}`);
   for (const name of UI_PLUGIN_MESSAGES) add(`ui.message.plugin.${name}`, 'ui', 'stable', 'shared/plugins/ui.js#UI_PLUGIN_MESSAGES');
   for (const name of UI_HOST_MESSAGES) add(`ui.message.host.${name}`, 'ui', 'stable', 'shared/plugins/ui.js#UI_HOST_MESSAGES');
+  for (const name of UI_EFFECTS) add(`ui.effect.${name}`, 'ui', 'stable', 'shared/plugins/ui.js#UI_EFFECTS');
   for (const name of UI_SLOT_IDS) add(`ui.slot.${name}`, 'ui', 'stable', 'shared/plugins/manifest.js#UI_SLOT_IDS');
   for (const route of extra.studioRoutes || []) add(`studio.route.${route}`, 'studio', 'stable', 'server/studio/index.js#STUDIO_ROUTES');
   for (const code of Object.keys(PLUGIN_ERRORS)) add(`error.${code}`, 'error', 'stable', 'shared/plugins/errors.js#PLUGIN_ERRORS');

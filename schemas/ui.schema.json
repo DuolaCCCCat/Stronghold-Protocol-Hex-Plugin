@@ -6,7 +6,7 @@
   "$defs": {
     "slot": {
       "type": "string",
-      "enum": ["hud.right", "result.tab", "stats.tab", "room.panel"]
+      "enum": ["hud.right", "hud.left", "hud.left2", "hud.left3", "result.tab", "stats.tab", "room.panel"]
     },
     "ready": {
       "type": "object",
@@ -71,11 +71,49 @@
       "required": ["v", "t", "op", "key"],
       "properties": { "v": { "const": 1 }, "t": { "const": "storage" }, "op": { "const": "delete" }, "key": { "$ref": "#/$defs/storageKey" } }
     },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "t", "x", "y"],
+      "properties": {
+        "v": { "const": 1 },
+        "t": { "const": "frame" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "t", "name", "on"],
+      "properties": {
+        "v": { "const": 1 },
+        "t": { "const": "effect" },
+        "name": { "enum": ["dj-rotate", "units-gif", "dj-neon"] },
+        "on": { "type": "boolean" },
+        "variant": { "enum": ["amiya2", "mix"] },
+        "strategy": { "enum": ["amiya"] },
+        "tune": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "turn": { "type": "number", "minimum": 0.25, "maximum": 4.5 },
+            "squash": { "type": "number", "minimum": 0, "maximum": 0.9 },
+            "pulse": { "type": "number", "minimum": 0.15, "maximum": 3 }
+          }
+        }
+      }
+    },
     "pluginToHost": {
       "oneOf": [
         { "$ref": "#/$defs/ready" },
         { "$ref": "#/$defs/slotRequest" },
         { "$ref": "#/$defs/resize" },
+        { "$ref": "#/$defs/frame" },
+        { "$ref": "#/$defs/effect" },
         { "$ref": "#/$defs/notice" },
         { "$ref": "#/$defs/statsRequest" },
         { "$ref": "#/$defs/storageKeys" },

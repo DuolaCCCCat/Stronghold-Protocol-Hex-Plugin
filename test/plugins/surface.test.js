@@ -18,7 +18,7 @@ import { RULE_NAMES } from '../../shared/plugins/rules.js';
 import { PATCH_OPS } from '../../shared/plugins/patch.js';
 import { RECORD_SCHEMA } from '../../shared/plugins/recordsSchema.js';
 import { ASSET_CONTAINERS } from '../../shared/plugins/visual.js';
-import { UI_HOST_MESSAGES, UI_PLUGIN_MESSAGES } from '../../shared/plugins/ui.js';
+import { UI_EFFECTS, UI_HOST_MESSAGES, UI_PLUGIN_MESSAGES } from '../../shared/plugins/ui.js';
 import { PLUGIN_ERRORS } from '../../shared/plugins/errors.js';
 import { CATALOG_ENTRY_FIELDS, CATALOG_FIELDS } from '../../shared/plugins/catalog.js';
 import { SDK_ID, SDK_MEMBERS } from '../../shared/plugins/sdk.js';
@@ -77,6 +77,7 @@ function expectedNames() {
   for (const [group, key] of DSL_GROUPS) for (const name of vocab[key]) names.push(`dsl.${group}.${name}`);
   for (const name of UI_PLUGIN_MESSAGES) names.push(`ui.message.plugin.${name}`);
   for (const name of UI_HOST_MESSAGES) names.push(`ui.message.host.${name}`);
+  for (const name of UI_EFFECTS) names.push(`ui.effect.${name}`);
   for (const name of UI_SLOT_IDS) names.push(`ui.slot.${name}`);
   for (const route of STUDIO_ROUTES) names.push(`studio.route.${route}`);
   for (const code of Object.keys(PLUGIN_ERRORS)) names.push(`error.${code}`);
