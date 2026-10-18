@@ -46,6 +46,38 @@
     radial-gradient(120% 90% at 45% 50%, transparent 60%, rgba(0, 0, 0, .5) 100%);
 }
 .gm__loading { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; pointer-events: none; }
+/* 观战表情 (ui/watchEmote.js): the falling-emote layer over the field, under the HUD. Each drop animates `top` (a
+   percentage of the layer's height, so it works at every aspect ratio); the inner box carries the sway / spin and the
+   fade. Parameters come inline from rainBurst(): --rain-delay / --rain-dur / --rain-sway / --rain-spin / --rain-size. */
+.gm__emote-rain { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.gm__emote-rain__drop {
+  position: absolute; top: -14%; left: 0; width: var(--rain-size, .56rem); height: var(--rain-size, .56rem);
+  animation: wem-fall var(--rain-dur, 3200ms) cubic-bezier(.32, .06, .72, .45) var(--rain-delay, 0ms) forwards;
+  will-change: top;
+}
+.gm__emote-rain__inner {
+  display: block; width: 100%; height: 100%;
+  animation: wem-sway 1.15s ease-in-out infinite alternate, wem-fade var(--rain-dur, 3200ms) linear var(--rain-delay, 0ms) forwards;
+}
+.gm__emote-rain__inner .eart { filter: drop-shadow(0 .02rem .05rem rgba(0, 0, 0, .55)); }
+@keyframes wem-fall { from { top: -14%; } to { top: 112%; } }
+@keyframes wem-sway {
+  from { transform: translateX(calc(-1 * var(--rain-sway, .2rem))) rotate(calc(-1 * var(--rain-spin, 0deg))); }
+  to { transform: translateX(var(--rain-sway, .2rem)) rotate(var(--rain-spin, 0deg)); }
+}
+@keyframes wem-fade { 0%, 68% { opacity: 1; } 100% { opacity: 0; } }
+/* The sender's 连击 counter (ui/watchEmote.js WatchEmoteCombo): centred, above the HUD, one pop per click, faded by
+   the parent 1.8 s after the last click. Nothing falls on the sender's own screen. */
+.gm__combo { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; pointer-events: none; }
+.gm__combo__num {
+  font-family: var(--font-num); font-weight: 900; font-size: .72rem; line-height: 1; letter-spacing: .06em;
+  color: #b9ffe9; text-shadow: 0 0 .18rem rgba(23, 249, 183, .65), 0 .03rem .02rem rgba(0, 0, 0, .75);
+  animation: gm-combo-pop 180ms var(--ease-out);
+}
+.gm__combo.is-out { animation: gm-combo-out 240ms var(--ease-in-out) forwards; }
+@keyframes gm-combo-pop { 0% { transform: scale(1.4); opacity: .65; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes gm-combo-out { to { opacity: 0; transform: translateY(-.12rem) scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .gm__emote-rain { display: none; } .gm__combo, .gm__combo__num { animation: none; } }
 .gm__hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .gm__hud > * { pointer-events: auto; }
 .gload { align-items: center; justify-content: center; gap: .2rem; }

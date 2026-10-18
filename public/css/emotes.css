@@ -132,6 +132,100 @@
 .ebubble.team__bubble { position: absolute; }
 .ebubble__icon { position: absolute; left: .26rem; top: .12rem; width: .68rem; height: .70rem; display: grid; place-items: center; }
 .ebubble .eart { width: 100%; height: 100%; }
+/* a text bubble in the same shell (the watch notice, compact: 「名字 ×n」) — one line, no picture / tail sprite.
+   The plate is OPAQUE on purpose (the old 交流 text bubble relied on a light plate, and screens/game.css still sets
+   its dark text; over our plate that was black on black). Fixed dark plate + light text gives ~16:1 in every theme.
+   nowrap + max-content + ellipsis: the team row's narrow bubble slot used to wrap the whole sentence one glyph per
+   line; a long name is truncated with … while ×n stays readable. */
+.ebubble.ebubble--text {
+  --ebubble-text-bg: #151b19;
+  --ebubble-text-fg: #f2f7f5;
+  width: max-content; height: auto; min-height: .56rem; max-width: min(60vw, 340px);
+  padding: .1rem .16rem .1rem .2rem; display: flex; align-items: center;
+  font-size: .16rem; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--ebubble-text-bg); color: var(--ebubble-text-fg);
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: .06rem;
+}
+.ebubble.ebubble--text::before {
+  content: ''; position: absolute; inset: 0; border-radius: .06rem; background: var(--ebubble-text-bg);
+  box-shadow: 0 .02rem .08rem rgba(0, 0, 0, .45);
+}
+.ebubble.ebubble--text::after {
+  content: ''; position: absolute; left: -.06rem; top: calc(50% - .07rem); width: .12rem; height: .14rem;
+  background: var(--ebubble-text-bg); clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+.ebubble.ebubble--text .ebubble__txt {
+  position: relative; z-index: 1; display: block; flex: 0 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; color: var(--ebubble-text-fg);
+}
+.ebubble.ebubble--text .ebubble__n {
+  position: relative; z-index: 1; flex: none; margin-left: .06rem; font-weight: 800;
+  white-space: nowrap; color: var(--ebubble-text-fg);
+}
+
+/* ---- watch-emote button (观战表情; ui/emotes.js WatchEmoteButton) -------------------------------------------- */
+/* The face is the emote slot (an official cell-sized 56 px square, like the corner buttons); the pick key opens the
+   same 交流 panel in selection mode. The empty face is the existing neutral emote glyph, never text. The whole
+   button is free-positioned and draggable (ui/emotes.js: 5 px threshold, localStorage `sp.pref.watchEmotePos`,
+   clamped to the screen with an 8 px margin). */
+.wemote {
+  position: absolute; left: .24rem; bottom: 1.46rem; z-index: 4;
+  display: flex; align-items: flex-end; touch-action: none; cursor: grab;
+  transition: opacity var(--t-fast), filter var(--t-fast);
+}
+.wemote.is-dragging { opacity: .72; filter: brightness(1.18); cursor: grabbing; }
+.wemote.is-panel-down .ewheel__panel { top: calc(100% + .02rem); bottom: auto; }
+.wemote__face {
+  position: relative; width: .56rem; height: .56rem; display: grid; place-items: center; padding: .02rem; box-sizing: border-box;
+  background: rgba(8, 11, 10, .85); border: 1px solid var(--line-2); color: var(--text-lo); font-size: 0;
+  transition: color var(--t-fast), border-color var(--t-fast), filter var(--t-fast), opacity var(--t-fast);
+}
+.wemote__face .eart, .wemote__art { width: 100%; height: 100%; object-fit: contain; }
+.wemote__empty { width: .32rem; height: .32rem; color: var(--text-dim); }
+.wemote__face:hover:not(:disabled) { color: var(--mint-400); border-color: var(--mint-700); filter: brightness(1.12); }
+.wemote__face:disabled { opacity: .5; cursor: not-allowed; }
+.wemote__pick {
+  position: absolute; right: -.07rem; bottom: -.07rem; width: .2rem; height: .2rem; display: grid; place-items: center;
+  padding: 0; border: 1px solid var(--line-2); background: rgba(8, 11, 10, .95); color: var(--text-lo);
+  transition: color var(--t-fast), border-color var(--t-fast), opacity var(--t-fast);
+}
+.wemote__pick .icon { width: .12rem; height: .12rem; transform: rotate(90deg); }
+.wemote__pick:hover:not(:disabled) { color: var(--mint-400); border-color: var(--mint-700); }
+.wemote__pick:disabled { opacity: .35; cursor: not-allowed; }
+.wemote__gear {
+  position: absolute; left: -.07rem; top: -.12rem; width: .2rem; height: .2rem; display: grid; place-items: center;
+  padding: 0; border: 1px solid var(--line-2); background: rgba(8, 11, 10, .95); color: var(--text-lo);
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.wemote__gear .icon { width: .13rem; height: .13rem; }
+.wemote__gear:hover { color: var(--mint-400); border-color: var(--mint-700); }
+.wemote__settings {
+  position: absolute; left: -.15rem; bottom: calc(100% + .08rem); z-index: 6; width: 2.1rem; padding: .08rem; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: .04rem;
+  background: rgba(10, 14, 12, .97); border: 1px solid var(--line-2); box-shadow: 0 .04rem .16rem rgba(0, 0, 0, .55);
+}
+.wemote.is-panel-down .wemote__settings { top: calc(100% + .08rem); bottom: auto; }
+.wemote__settings button {
+  display: flex; align-items: center; justify-content: space-between; gap: .1rem; width: 100%; padding: .06rem .08rem;
+  background: none; border: 0; color: var(--text-md); font-size: .15rem; text-align: left;
+}
+.wemote__settings button:hover { background: rgba(255, 255, 255, .08); }
+.wemote__settings b { color: var(--mint-400); font-weight: 700; }
+.wemote__random { font-size: .34rem; font-weight: 900; line-height: 1; color: var(--mint-400); }
+.wemote__face.is-random { border-style: dashed; }
+/* the picker's ? (random) key, in the pager strip left of the dots */
+.ewheel__random {
+  position: absolute; left: .36rem; top: 1.94rem; z-index: 1; width: .22rem; height: .22rem; padding: 0;
+  display: grid; place-items: center; background: rgba(255, 255, 255, .12); border: 1px solid var(--line-2);
+  color: var(--text-hi); font-size: .16rem; font-weight: 900; line-height: 1;
+}
+.ewheel__random:hover:not(:disabled) { color: var(--mint-400); border-color: var(--mint-700); }
+.ewheel__random:disabled { opacity: .4; cursor: default; }
+.wemote__count {
+  position: absolute; left: -.06rem; top: -.12rem; min-width: .2rem; height: .16rem; padding: 0 .04rem; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: .08rem; background: var(--mint-500); color: var(--text-on-mint);
+  font-size: .12rem; font-weight: 700; line-height: 1; pointer-events: none;
+}
 
 @keyframes emo-panel-in { from { opacity: 0; transform: translateY(.06rem) scale(.96); } }
 @keyframes emo-page-in { from { opacity: 0; } }

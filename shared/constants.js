@@ -276,10 +276,39 @@ export const EMOTE_THEMES = Object.freeze([
 ].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
 /** Every emote with its theme: `{ id, sortId, picId, label, themeId, dir }`, in wheel order. */
 export const EMOTE_CATALOG = Object.freeze(EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir }))));
-/** The 36 official emote ids (protocol whitelist: `EMOTES.includes(id)`). */
+/** The 36 official emote ids (the official tables; `EMOTES.includes(id)`). */
 export const EMOTES = Object.freeze(EMOTE_CATALOG.map((e) => e.id));
-const EMOTE_INDEX = new Map(EMOTE_CATALOG.map((e) => [e.id, e]));
-/** Catalog record of an emote id, or null (safe for any input, including '__proto__'). */
+
+// ---- Custom emote packs (网络表情包, added 2026-10-18) -------------------------------------------------------------
+// Two extra wheel pages after the official six. These are NOT official emotes: the official tables, their ids, art
+// and data/emotes.json are untouched. The pictures are normalized to the official battle-emote spec and committed
+// under public/img/emotes/ (120×120 WebP, the size of the official basic/basic_2 art; sources and the conversion are
+// in public/img/emotes/README.md and docs/WATCH-EMOTES.md). Their `art` is a site URL, so `picId` is the emote id itself and the
+// local-client/mirror lookups (emoteArtGroup / data.js artUrls) do not apply.
+const cemo = (id, sortId, art, label) => Object.freeze({ id, sortId, picId: id, art, label });
+export const CUSTOM_EMOTE_THEMES = Object.freeze([
+  { themeId: 'emoticon_custom_amiya', dir: 'amiya', sortId: 2000, isBasic: false, name: N_('表情包：阿米娅'), emotes: [
+    cemo('custom_amiya_sit', 3001, '/img/emotes/amiya_sit.webp', N_('阿米娅·坐下')),
+    cemo('custom_amiya_cheer', 3002, '/img/emotes/amiya_cheer.webp', N_('阿米娅·加油')),
+    cemo('custom_prss_smug', 3003, '/img/emotes/prss_smug.webp', N_('普瑞赛斯·得意')),
+  ] },
+  { themeId: 'emoticon_custom_qq', dir: 'qq', sortId: 2001, isBasic: false, name: N_('表情包：QQ'), emotes: [
+    cemo('custom_qq_cat_wow', 3101, '/img/emotes/qq_cat_wow.webp', N_('猫猫·震惊')),
+    cemo('custom_qq_cat_no', 3102, '/img/emotes/qq_cat_no.webp', N_('猫猫·拒绝')),
+    cemo('custom_qq_headpat', 3103, '/img/emotes/qq_headpat.webp', N_('摸摸头')),
+    cemo('custom_qq_starry', 3104, '/img/emotes/qq_starry.webp', N_('星星眼')),
+  ] },
+].map((t) => Object.freeze({ ...t, emotes: Object.freeze(t.emotes) })));
+/** Custom emotes with their theme, in wheel order. */
+export const CUSTOM_EMOTE_CATALOG = Object.freeze(CUSTOM_EMOTE_THEMES.flatMap((t) => t.emotes.map((e) => Object.freeze({ ...e, themeId: t.themeId, dir: t.dir }))));
+/** The wheel's pages: the six official themes, then the custom packs. */
+export const EMOTE_WHEEL_THEMES = Object.freeze([...EMOTE_THEMES, ...CUSTOM_EMOTE_THEMES]);
+/** Every emote id the client may put on the wire: the official 36 + the custom packs. */
+export const SENDABLE_EMOTES = Object.freeze([...EMOTES, ...CUSTOM_EMOTE_CATALOG.map((e) => e.id)]);
+/** Whether an id may be sent as `g.emote { id }` (official or custom). */
+export const isSendableEmote = (id) => typeof id === 'string' && SENDABLE_EMOTES.includes(id);
+const EMOTE_INDEX = new Map([...EMOTE_CATALOG, ...CUSTOM_EMOTE_CATALOG].map((e) => [e.id, e]));
+/** Catalog record of an emote id (official or custom), or null (safe for any input, including '__proto__'). */
 export const emoteInfo = (id) => (typeof id === 'string' && EMOTE_INDEX.get(id)) || null;
 // id-keyed maps without a prototype: a wire id like '__proto__' / 'toString' looks up undefined, never an Object method
 const emoteMap = (pick) => Object.freeze(Object.assign(Object.create(null), Object.fromEntries(EMOTE_CATALOG.map((e) => [e.id, pick(e)]))));
@@ -287,9 +316,29 @@ const emoteMap = (pick) => Object.freeze(Object.assign(Object.create(null), Obje
 export const EMOTE_THEME = emoteMap((e) => e.themeId);
 /** Emote id → our aria-label (never displayed). */
 export const EMOTE_LABEL = emoteMap((e) => e.label);
-/** data/local-assets.json group of an emote's art (`emoticon/<dir>`), or null. */
-export const emoteArtGroup = (id) => { const e = emoteInfo(id); return e ? `emoticon/${e.dir}` : null; };
-/** Canonical URL of an emote's extracted art (`/assets/local/emoticon/<dir>/<picId>.png`), or null for unknown ids. */
-export const emoteArtPath = (id) => { const e = emoteInfo(id); return e ? `/assets/local/emoticon/${e.dir}/${e.picId}.png` : null; };
+/** data/local-assets.json group of an official emote's art (`emoticon/<dir>`), or null (unknown / custom emote). */
+export const emoteArtGroup = (id) => {
+  const e = emoteInfo(id);
+  const art = e ? /** @type {{ art?: string }} */ (e).art : null;
+  return e && !art ? `emoticon/${e.dir}` : null;
+};
+/** Canonical URL of an emote's art (`/assets/local/emoticon/<dir>/<picId>.png`, or a custom emote's `/img/...`), or null. */
+export const emoteArtPath = (id) => {
+  const e = emoteInfo(id);
+  if (!e) return null;
+  const art = /** @type {{ art?: string }} */ (e).art;
+  return art || `/assets/local/emoticon/${e.dir}/${e.picId}.png`;
+};
 export const EMOTE_COOLDOWN_MS = 1000; // activity_table autoChessData.constData.chatCD (s)
 export const EMOTE_BUBBLE_MS = 3000;   // constData.chatTime (s): how long a bubble stays up
+// Watch-emote pulses (观战表情, 2026-10-18): the client merges every click of a 200 ms window into `count` of one
+// `g.emote { id, watch, count }`; the receiver makes exactly `count` falls. These are protocol sanity bounds, not
+// render caps: a normal burst (85 clicks in 300 ms) is far below them.
+export const WATCH_EMOTE_COUNT_MAX = 1000;
+export const WATCH_EMOTE_RATE_MS = 150; // the server's floor between two pulses (≤ ~6.7/s; the client sends ≤ 5/s)
+// A random watch pulse may pick different ids inside one 200 ms window: each id becomes one message (its clicks are
+// grouped), at most this many messages per window. The server lets that many arrive together (a short burst window)
+// instead of treating them as separate pulses.
+export const WATCH_EMOTE_RANDOM_MAX_IDS = 6;
+export const WATCH_EMOTE_BURST_MS = 80;
+export const WATCH_EMOTE_BURST_MAX = WATCH_EMOTE_RANDOM_MAX_IDS;

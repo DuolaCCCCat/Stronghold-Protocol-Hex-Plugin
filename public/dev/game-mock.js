@@ -720,7 +720,10 @@ async function mockRequest(t, f = {}) {
       p.ready = !!f.ready; refreshPrivate(); return {};
     }
     case 'g.emote': {
-      store.set((s) => ({ emotes: [...s.emotes.slice(-19), { seq: Date.now(), playerId: ME, id: f.id, at: Date.now() }] }));
+      // the server's relay (Match.emote): a watch pulse echoes `watch` / `count`, expanded by the screens themselves
+      const watch = typeof f.watch === 'string' && f.watch ? f.watch : null;
+      const count = Number.isInteger(f.count) && f.count > 1 ? f.count : 1;
+      store.set((s) => ({ emotes: [...s.emotes.slice(-19), { seq: Date.now(), playerId: ME, id: f.id, at: Date.now(), watch, count }] }));
       return {};
     }
     case 'g.watch': {

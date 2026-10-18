@@ -883,8 +883,17 @@ trophies, reward }] }`. Trophies and 卫戍认证 follow each row's OWN rounds p
 Hidden-Core trophy row only for the players still in when it was cleared — a teammate eliminated or departed earlier
 gets the table value of its own rounds. `onEnd(summary)` receives the same object (without `t`, plus `errors`).
 
-`m.emote { playerId, id }`: `id` must be one of `shared/constants.js EMOTES` (`BAD_MSG` otherwise, also when `handle()`
-is called without protocol validation); 1 per second per player (`RATE`).
+`m.emote { playerId, id }`: `id` must be one of `shared/constants.js SENDABLE_EMOTES` (the 36 official + the custom packs;
+`BAD_MSG` otherwise, also when `handle()` is called without protocol validation); 1 per second per player (`RATE`).
+A 观战表情 pulse (`g.emote { id, watch, count }`) names the player whose screen it falls on (no life gate; the button is
+usable whenever another player's board is on screen), has a ≥ 150 ms floor between pulses (`RATE`, with up to 6 messages
+of one random-id burst allowed inside 80 ms), and is relayed with `watch` / `count` so the target always expands `count`
+into that many independently randomized falls (no picture on the wire); a client currently watching the target also
+falls (live and from its 2 s per-target replay cache when it switches there), the sender's own screen falls too only
+while its 「在自己屏幕显示弹幕」 switch is on (otherwise just the 连击 counter), and a client watching somebody else or
+nobody gets no fall. Every client that receives the event shows the same compact `⟨B 的显示名⟩ ×n` team bubble (one
+line; a long name ellipsized, ×n kept). The watch button persists its picked emote / `?` in
+`sp.pref.watchEmoteSelection`; a stale id falls back to the empty face.
 
 Tickers (`m.ticker { text, id, type, priority, playerId }`) from `config.broadcasts`: SHOP_LEVEL, GOLDEN_CHAR,
 CHAR_DAMAGE (per board unit per battle, highest threshold; summons created in battle once per unit type — a client

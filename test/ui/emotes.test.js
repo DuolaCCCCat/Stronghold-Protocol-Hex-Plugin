@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   EMOTES, EMOTE_THEMES, EMOTE_CATALOG, EMOTE_THEME, EMOTE_LABEL, EMOTE_COOLDOWN_MS, EMOTE_BUBBLE_MS,
-  emoteInfo, emoteArtPath, emoteArtGroup,
+  EMOTE_WHEEL_THEMES, emoteInfo, emoteArtPath, emoteArtGroup,
 } from '../../shared/constants.js';
 import { validateC2S } from '../../shared/protocol.js';
 import { buildEmotes, formatEmotes, THEME_DIRS } from '../../tools/build-emotes.mjs';
@@ -269,7 +269,7 @@ describe('public/js/ui/emotes.js helpers', () => {
 
   test('pager helpers: clamp, swipe threshold, remembered theme', async () => {
     const { clampPage, swipeStep, themeIndex, lastThemeIndex, rememberTheme } = await import('../../public/js/ui/emotes.js');
-    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)], [0, 2, 5, 0, 2]);
+    assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)], [0, 2, EMOTE_WHEEL_THEMES.length - 1, 0, 2]);
     assert.deepEqual([swipeStep(-60), swipeStep(60), swipeStep(-10), swipeStep(0), swipeStep(-40)], [1, -1, 0, 0, 1]);
     assert.equal(themeIndex('emoticon_foolsday_amiya'), 4);
     assert.equal(themeIndex('nope'), 0);

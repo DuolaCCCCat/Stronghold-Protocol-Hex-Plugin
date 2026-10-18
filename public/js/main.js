@@ -280,7 +280,10 @@ function wireNet() {
     store.set((s) => ({ ticker: [...s.ticker.slice(-(TICKER_KEEP - 1)), { id: ++seq, text, at: Date.now(), type, playerId, round: s.match?.public?.round ?? null, priority }] }));
   });
   net.on('m.emote', (msg) => {
-    store.set((s) => ({ emotes: [...s.emotes.slice(-(EMOTE_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, id: msg.id, at: Date.now() }] }));
+    // watch / count: a 观战表情 pulse — the player whose screen it falls on, and the clicks it merged (ui/watchEmote.js)
+    const watch = typeof msg.watch === 'string' && msg.watch ? msg.watch : null;
+    const count = Number.isInteger(msg.count) && msg.count > 1 ? msg.count : 1;
+    store.set((s) => ({ emotes: [...s.emotes.slice(-(EMOTE_KEEP - 1)), { seq: ++seq, playerId: msg.playerId, id: msg.id, at: Date.now(), watch, count }] }));
   });
 
   // Entering (title → lobby) while already online also needs the deep-link join.

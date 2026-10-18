@@ -1,7 +1,7 @@
 // Platform interface: start/handle/onDisconnect/onReconnect/onLeave/dispose, autoplay, bot takeover, views.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASE, ERR } from '../../shared/constants.js';
+import { PHASE, ERR, EMOTES, SENDABLE_EMOTES, WATCH_EMOTE_RATE_MS } from '../../shared/constants.js';
 import { Match } from '../../server/match/Match.js';
 import { StubMatch } from '../../server/match/StubMatch.js';
 import { DATA, makeMatch, checkInvariants, give, giveItem, chessOfTier } from './harness.js';
@@ -318,7 +318,7 @@ test('emotes: relayed as m.emote with a 1 s cooldown; g.watch during prep scouts
   assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: 'autochess_battle_happy' });
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'slug_autochess_battle_thanks' }).error, ERR.RATE);
   h.sched.advance(1000);
-  // only the official emote ids are relayed (defence in depth: handle() may be called without validateC2S)
+  // the whitelist is the official 36 + the custom packs (defence in depth: handle() may be called without validateC2S)
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'autochess_room_hello' }).error, ERR.BAD_MSG); // room-scene emote
   assert.equal(m.handle('p_0', { t: 'g.emote', id: 'happy' }).error, ERR.BAD_MSG); // v1 short id
   assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'slug_autochess_battle_thanks' }), { ok: true });
@@ -329,6 +329,45 @@ test('emotes: relayed as m.emote with a 1 s cooldown; g.watch during prep scouts
   assert.equal(f.prep, true);
   assert.ok(Array.isArray(f.units));
   assert.equal(m.handle('p_0', { t: 'g.watch', fieldId: 'n:nobody' }).error, ERR.BAD_TARGET);
+  m.dispose();
+});
+
+test('watch emotes: relayed with watch/count, no life gate, pulses rate-limited', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, seed: 69, fake: true }).start();
+  const m = h.m;
+  const a = h.ps('p_0'), b = h.ps('p_1');
+  a.lp = 10; b.lp = 9;
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 5 }), { ok: true });
+  assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: 'custom_amiya_sit', watch: 'p_1', count: 5 });
+  // a pulse has a short floor (150 ms), not the ordinary 1 s chatCD
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 5 }).error, ERR.RATE);
+  h.sched.advance(149);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 5 }).error, ERR.RATE);
+  h.sched.advance(1);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 5 }), { ok: true });
+  // no life gate: the watched player may have more LP (the change of 2026-10-18)
+  a.lp = 1; b.lp = 99;
+  h.sched.advance(200);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 1 }), { ok: true });
+  assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: 'custom_amiya_sit', watch: 'p_1' });
+  // a target must be another player of this match; a count must be a small integer
+  h.sched.advance(200);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_0' }).error, ERR.BAD_TARGET);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'nobody' }).error, ERR.BAD_TARGET);
+  h.sched.advance(200);
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: 'custom_amiya_sit', watch: 'p_1', count: 1001 }).error, ERR.BAD_MSG);
+  // an ordinary 交流 emote still carries no watch / count
+  h.sched.advance(1000);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: EMOTES[0] }), { ok: true });
+  assert.deepEqual(h.lastBc('m.emote'), { t: 'm.emote', playerId: 'p_0', id: EMOTES[0] });
+  // a random pulse's per-id messages arrive together: up to 6 pass in one burst, the 7th is rate-limited
+  h.sched.advance(WATCH_EMOTE_RATE_MS);
+  for (let i = 0; i < 6; i++) {
+    assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: SENDABLE_EMOTES[i], watch: 'p_1', count: 2 }), { ok: true }, `burst ${i}`);
+  }
+  assert.equal(m.handle('p_0', { t: 'g.emote', id: SENDABLE_EMOTES[7], watch: 'p_1', count: 2 }).error, ERR.RATE);
+  h.sched.advance(WATCH_EMOTE_RATE_MS);
+  assert.deepEqual(m.handle('p_0', { t: 'g.emote', id: SENDABLE_EMOTES[7], watch: 'p_1', count: 2 }), { ok: true }, 'a new burst after the floor');
   m.dispose();
 });
 

@@ -94,7 +94,8 @@ import { OfferOverlay, offerBlocksPrep } from '../ui/offerOverlay.js';
 import { ChoiceOverlay, spMarks } from '../ui/choiceOverlay.js';
 import { EnemyDrawer } from '../ui/enemyDrawer.js';
 import { Ticker } from '../ui/ticker.js';
-import { EmoteWheel } from '../ui/emotes.js';
+import { EmoteWheel, WatchEmoteButton, WATCH_EMOTE_OWN_RAIN_KEY } from '../ui/emotes.js';
+import { WatchEmoteRain, WatchEmoteCombo, WATCH_EMOTE_COMBO_HOLD_MS, WATCH_EMOTE_COMBO_OUT_MS, WATCH_EMOTE_NOTICE_HOLD_MS, WATCH_EMOTE_NOTICE_OUT_MS } from '../ui/watchEmote.js';
 import { EffectsList } from '../ui/effectsList.js';
 import { CombatHud } from '../ui/combatHud.js';
 import { CombatMetricsPanel } from '../ui/combatMetrics.js';
@@ -127,7 +128,7 @@ import { BandDraftScreen } from './bandDraft.js';
 import { ResultScreen } from './settle.js';
 import { ProtocolBoot, preloadBootArt, bootArtReady, BOOT_LEAVE_MS } from '../ui/protocolBoot.js';
 import { net } from '../net.js';
-import { store, useStore, shallowEqual, serverNow, isSpectating } from '../store.js';
+import { store, useStore, shallowEqual, serverNow, isSpectating, loadPref, savePref } from '../store.js';
 import { battleRunner } from '../battle/runner.js';
 import '../ui/pluginFrame.js';
 import { isClientCombat, observeTarget, teammateProgress, cameraLayers, layerCamera, loneHalf, sidesOf, resumedWatch, followedScout } from '../battle/observe.js';
@@ -235,6 +236,43 @@ function MatchScreen() {
   const showMetrics = metricsSetting && !modRoom && !spectator;
   useEffect(() => { if (!showMetrics) setMetricsOpen(false); }, [showMetrics]);
   const [emoteOpen, setEmoteOpen] = useState(false);
+  // 观战表情 combo (the sender's own screen, never a fall): one per click, held WATCH_EMOTE_COMBO_HOLD_MS after the
+  // last click, then faded out for WATCH_EMOTE_COMBO_OUT_MS. Reset by a face change / leaving the watched board.
+  const [watchCombo, setWatchCombo] = useState(0);
+  const [watchComboOut, setWatchComboOut] = useState(false);
+  // 「A 为 B 发送了 n 条弹幕」: its own n accumulator, rendered through the SAME team-panel EmoteBubble channel as a
+  // 交流 bubble (no second bubble component). 2 s hold + a fade, then unmounted.
+  const [watchNotice, setWatchNotice] = useState(null);
+  const watchNoticeSeq = useRef(0);
+  const watchNoticeTimer = useRef(0);
+  // the sender's own falls (the switch is 「在自己屏幕显示弹幕」; ON by default). The label/keyboard lives in the
+  // watch button's settings; this state feeds the rain layer so the sender's screen falls over the watched board too.
+  const [ownRains, setOwnRains] = useState(() => loadPref(WATCH_EMOTE_OWN_RAIN_KEY, true) !== false);
+  const setOwnRainsPersist = useCallback((v) => {
+    setOwnRains(v);
+    savePref(WATCH_EMOTE_OWN_RAIN_KEY, v);
+  }, []);
+  const watchComboTimer = useRef(0);
+  const watchComboOutTimer = useRef(0);
+  const resetWatchCombo = useCallback(() => {
+    clearTimeout(watchComboTimer.current);
+    clearTimeout(watchComboOutTimer.current);
+    watchComboTimer.current = 0;
+    watchComboOutTimer.current = 0;
+    setWatchCombo(0);
+    setWatchComboOut(false);
+  }, []);
+  const bumpWatchCombo = useCallback(() => {
+    clearTimeout(watchComboTimer.current);
+    clearTimeout(watchComboOutTimer.current);
+    setWatchComboOut(false);
+    setWatchCombo((n) => n + 1);
+    watchComboTimer.current = setTimeout(() => {
+      setWatchComboOut(true);
+      watchComboOutTimer.current = setTimeout(() => { setWatchCombo(0); setWatchComboOut(false); }, WATCH_EMOTE_COMBO_OUT_MS);
+    }, WATCH_EMOTE_COMBO_HOLD_MS);
+  }, []);
+  useEffect(() => () => { clearTimeout(watchComboTimer.current); clearTimeout(watchComboOutTimer.current); }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [drag, setDrag] = useState(null);                // { uid, kind, id } while dragging a piece
@@ -948,6 +986,8 @@ function MatchScreen() {
   // emote bubbles (and a sound for teammates' emotes)
   const bubbleMs = (gd.config?.timers?.chatBubble ?? 3) * 1000;
   const bubbles = activeBubbles(emotes, Date.now(), bubbleMs);
+  // the watch notice rides the same per-player bubble slot (beside that player's avatar, same EmoteBubble shell/news)
+  if (watchNotice) bubbles.set(watchNotice.playerId, watchNotice);
   useTicker(bubbles.size ? 500 : 0); // re-render only while a bubble is showing (to expire it)
   const lastEmote = useRef(emotes.length ? emotes[emotes.length - 1].seq : 0);
   useEffect(() => {
@@ -1571,8 +1611,41 @@ function MatchScreen() {
   const liveLayers = (combat || settleMode) && battleState?.bondLayers ? battleState.bondLayers : null;
   // the observing pill names the player whose bonds the strip shows (the same teammate as the strip's "👁 name" tag)
   const observingName = cc && combat && watchedFid ? (!strip.self && stripFid === watchedFid ? strip.name : (players.find((p) => p.fieldId === watchedFid || ownFieldId(p.playerId) === watchedFid)?.name || t('队友'))) : null;
-  const watchedP = watchingOther ? (players.find((p) => p.playerId !== myId && (watching === ownFieldId(p.playerId) || (watching === p.fieldId && String(watching).startsWith('n:')))) || null) : null;
+  const watchedP = watchingOther ? (players.find((p) => p.playerId !== myId && (watching === ownFieldId(p.playerId) || watching === p.fieldId)) || null) : null;
   const watchedName = watchingOther ? (watchedP?.name || players.find((p) => watching === p.fieldId)?.name || t('队友')) : null;
+  // 观战表情: the watched player's id — the `watch` of every pulse and the target of the fall layer. No life gate: the
+  // button is usable whenever another player's board is on screen.
+  const watchedPid = watchingOther
+    ? (watchWho?.fieldId === watching && watchWho?.playerId
+      ? watchWho.playerId
+      : typeof watching === 'string' && watching.startsWith('n:') ? watching.slice(2)
+        : watchedP?.playerId || null)
+    : null;
+  // the combo belongs to the watched board: leaving it / switching away clears it at once
+  useEffect(() => { if (!watchingOther || !watchedPid) resetWatchCombo(); }, [watchingOther, watchedPid, resetWatchCombo]);
+  // Compact 「名字 ×n」: n accumulates for the same sender→target pair, 2 s after the last pulse the bubble goes.
+  // It is handed to TeamPanel as a normal bubble entry (same EmoteBubble / .team__bubble anchor as a 交流 emote);
+  // a 2 s replay replaces the live count instead of doubling it.
+  const pushWatchNotice = (fromId, toId, n, replace = false) => {
+    const count = Math.trunc(Number(n) || 0);
+    if (!(count > 0) || !fromId || !toId) return;
+    const toName = players.find((p) => p.playerId === toId)?.name || t('队友');
+    const ttl = WATCH_EMOTE_NOTICE_HOLD_MS + WATCH_EMOTE_NOTICE_OUT_MS;
+    setWatchNotice((cur) => {
+      const same = !replace && !!cur && cur.fromId === fromId && cur.toId === toId;
+      const total = same ? cur.n + count : count;
+      return {
+        playerId: fromId, fromId, toId, n: total, seq: ++watchNoticeSeq.current, at: Date.now(), ttl,
+        text: toName,
+      };
+    });
+    clearTimeout(watchNoticeTimer.current);
+    watchNoticeTimer.current = setTimeout(() => setWatchNotice(null), ttl);
+  };
+  useEffect(() => {
+    if (!watchingOther || !watchedPid) { clearTimeout(watchNoticeTimer.current); setWatchNotice(null); }
+  }, [watchingOther, watchedPid]);
+  useEffect(() => () => clearTimeout(watchNoticeTimer.current), []);
   const stripBonds = strip.bonds;
   // a popup opened from the strip closes when the strip changes hands (another teammate scouted / a ‹ › half / back to
   // the own bonds); one opened from a card's chip keeps its unit owner (it carries its own player either way)
@@ -1668,6 +1741,18 @@ function MatchScreen() {
     <div class="gm__field" ref=${hostRef} onContextMenu=${(e) => e.preventDefault()}></div>
     ${viewKind === 'loading' ? html`<div class="gm__loading"><${Spinner} label="LOADING FIELD" /></div>` : null}
     <div class="gm__vignette" aria-hidden="true"></div>
+    <${WatchEmoteRain} events=${emotes} myId=${myId} watchingOther=${watchingOther} watchedPid=${watchedPid} ownRains=${ownRains}
+      onReceive=${(e) => pushWatchNotice(e.playerId, e.watch, e.count)}
+      onReplay=${(entries, target) => {
+        const last = entries[entries.length - 1];
+        if (!last || !target) return;
+        const total = entries.filter((e) => e.playerId === last.playerId).reduce((n, e) => n + e.count, 0);
+        pushWatchNotice(last.playerId, target, total, true);
+      }} />
+    <${WatchEmoteCombo} n=${watchCombo} leaving=${watchComboOut} />
+    ${watchingOther && watchedPid && !spectator ? html`<${WatchEmoteButton} targetName=${watchedName || ''}
+      onSend=${(id, count) => actions.watchEmote(id, watchedPid, count)} ownRains=${ownRains} onOwnRains=${setOwnRainsPersist}
+      onClick=${bumpWatchCombo} onReset=${resetWatchCombo} disabled=${conn.status !== 'online'} />` : null}
     ${tempNotice ? html`<${TempRowNotice} view=${view} count=${temp.count} items=${temp.items} label=${!drag && !facing}
       ready=${phase === PHASE.PREP && !!priv?.ready} />` : null}
     ${showPrep && view && viewKind !== 'loading' && priv && !pen ? html`<${StandInTags} view=${view} priv=${priv} getChess=${gd.chess} backups=${gd.backups} diyData=${{ chess: data.get('chess'), backups: data.get('backups') }} />` : null}

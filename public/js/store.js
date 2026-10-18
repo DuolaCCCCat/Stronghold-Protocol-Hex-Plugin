@@ -192,6 +192,14 @@ export function savePref(key, value) {
   try { globalThis.localStorage?.setItem(`sp.pref.${key}`, JSON.stringify(value)); } catch { /* ignore */ }
 }
 
+/**
+ * Remove a JSON preference from localStorage (silently ignores privacy errors).
+ * @param {string} key
+ */
+export function removePref(key) {
+  try { globalThis.localStorage?.removeItem(`sp.pref.${key}`); } catch { /* ignore */ }
+}
+
 const identity = (s) => s;
 
 /**

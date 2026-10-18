@@ -5,7 +5,7 @@
 // Installed on Match.prototype by server/match/Match.js (a method container: never instantiated; `this` is the match).
 
 import { unitStatsEntry } from '../../../shared/protocol.js';
-import { PHASE, ERR, EMOTES, EMOTE_COOLDOWN_MS, GEO } from '../../../shared/constants.js';
+import { PHASE, ERR, isSendableEmote, EMOTE_COOLDOWN_MS, WATCH_EMOTE_COUNT_MAX, WATCH_EMOTE_RATE_MS, WATCH_EMOTE_BURST_MS, WATCH_EMOTE_BURST_MAX, GEO } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
 import { OK, fail } from './common.js';
 import { onHumanEmote } from '../botEmotes.js';
@@ -44,7 +44,7 @@ export class MatchIntents {
       case 'g.offer': return this.requestOffer(ps, msg.offerId, msg.idx, msg);
       case 'g.offerRefresh': return this.requestOfferRefresh(ps, msg.offerId, msg.idx, msg);
       case 'g.ready': return ps.setReady(!!msg.ready);
-      case 'g.emote': return this.emote(ps, msg.id);
+      case 'g.emote': return this.emote(ps, msg.id, msg.watch ?? null, msg.count ?? 1);
       // playerId: the player tapped (a shared field names two) — the watch preference (item 56)
       case 'g.watch': return this.watch(ps, msg.fieldId, msg.playerId ?? null);
       case 'g.autoplay': return this.setAutoplay(ps, !!msg.on);
@@ -62,9 +62,36 @@ export class MatchIntents {
     }
   }
 
-  emote(ps, id) {
-    if (!EMOTES.includes(id)) return fail(ERR.BAD_MSG, 'unknown emote');
+  /**
+   * g.emote { id, watch?, count? } — an ordinary 交流 emote, or a watch pulse (观战表情): `watch` names
+   * the player whose screen it falls on, `count` the clicks its 200 ms pulse window merged. A watch pulse is
+   * relayed to every screen (the watcher's and the watched player's each expand it themselves) and has no life gate
+   * (the decision of 2026-10-18: usable whenever another player's board is on screen). Ordinary emotes keep
+   * the official 1 s chatCD; pulses have a short floor so a click storm cannot exceed ~6.7 messages/s.
+   */
+  emote(ps, id, watch = null, count = 1) {
+    if (!isSendableEmote(id)) return fail(ERR.BAD_MSG, 'unknown emote');
+    const n = Math.max(1, Math.trunc(Number(count) || 1));
+    if (n > WATCH_EMOTE_COUNT_MAX) return fail(ERR.BAD_MSG, 'emote count out of range');
     const now = this.sched.now();
+    if (watch != null) {
+      if (typeof watch !== 'string' || !watch) return fail(ERR.BAD_TARGET, 'no watch target');
+      const target = this.players.get(watch);
+      if (!target || target.playerId === ps.playerId) return fail(ERR.BAD_TARGET, 'unknown watch target');
+      // A random pulse sends one message per id, all at the window's flush: up to WATCH_EMOTE_BURST_MAX messages may
+      // arrive together (within WATCH_EMOTE_BURST_MS); after that the normal per-player floor applies.
+      if (now - ps.lastEmoteAt < WATCH_EMOTE_RATE_MS) {
+        const b = ps.watchBurst;
+        if (!(b && now - b.t <= WATCH_EMOTE_BURST_MS && b.n < WATCH_EMOTE_BURST_MAX && !b.ids.has(id))) return fail(ERR.RATE);
+        b.n += 1;
+        b.ids.add(id);
+      } else {
+        ps.watchBurst = { t: now, n: 1, ids: new Set([id]) };
+      }
+      ps.lastEmoteAt = now;
+      this.broadcast({ t: 'm.emote', playerId: ps.playerId, id, watch, ...(n > 1 ? { count: n } : {}) });
+      return OK;
+    }
     if (now - ps.lastEmoteAt < EMOTE_COOLDOWN_MS) return fail(ERR.RATE);
     ps.lastEmoteAt = now;
     this.broadcast({ t: 'm.emote', playerId: ps.playerId, id });
