@@ -929,6 +929,9 @@
       "items": {
         "enum": [
           "hud.right",
+          "hud.left",
+          "hud.left2",
+          "hud.left3",
           "result.tab",
           "stats.tab",
           "room.panel"

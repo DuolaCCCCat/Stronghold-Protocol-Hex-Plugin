@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "name": {
+    "zh": "若不是你突然闯进我生活",
+    "en": "If You Suddenly Stepped Into My Life",
+    "ja": "君が突然僕の生活に飛び込んで来なければ",
+    "ko": "네가 갑자기 내 삶에 뛰어들지 않았다면"
+  },
+  "description": {
+    "zh": "战斗界面里的第二颗按钮：只有阿米娅的动图、不显示名字。点一下放《若不是你突然闯进我生活》并让场上所有单位换成阿米娅的 GIF 替身，再点一下音乐停、单位复原。纯个人开关、只在局内出现，不开的人什么都看不到、也不会加载任何东西。",
+    "en": "The second button in the battle screen: the Amiya animation alone, no name on it. One click plays 「If You Suddenly Stepped Into My Life」 and turns every unit on the field into an Amiya GIF stand-in; another click stops the music and puts the units back. Personal switch, in-match only — players who leave it off see and load nothing.",
+    "ja": "戦闘画面の2つ目のボタン。アーミヤの動画だけで、名前は出ません。押すと「君が突然僕の生活に飛び込んで来なければ」が流れ、戦場の全ユニットがアーミヤの GIF に変わります。もう一度押すと音楽が止まり、ユニットは元に戻ります。個人用スイッチで対戦中のみ表示、オフの人には何も表示・読み込みされません。",
+    "ko": "전투 화면의 두 번째 버튼. 아미야 움짤만 보이고 이름은 표시되지 않습니다. 누르면 「네가 갑자기 내 삶에 뛰어들지 않았다면」이 재생되고 전장의 모든 유닛이 아미야 GIF로 바뀌며, 다시 누르면 음악이 멈추고 유닛이 원래대로 돌아옵니다. 개인 설정이며 대전 중에만 나타나고, 끈 사람에게는 아무것도 보이거나 로드되지 않습니다."
+  },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 2,
+  "class": "ui",
+  "scope": [
+    "personal"
+  ],
+  "authors": [
+    "DJ-Amiya"
+  ],
+  "permissions": [
+    "ui.frame"
+  ],
+  "slots": [
+    "hud.left"
+  ],
+  "entry": {
+    "client": "ui/index.html"
+  }
+}

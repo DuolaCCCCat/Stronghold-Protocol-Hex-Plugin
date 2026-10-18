@@ -213,6 +213,9 @@ function MatchScreen() {
   const hudElRef = useRef(null);                         // .gm__hud (inside the safe-area insets: the panels' frame)
   const { view, kind: viewKind } = useFieldView(hostRef);
 
+  // The ui plugins' host visuals that draw on the field (`units-gif`, `dj-rotate`) are handed over by useFieldView
+  // (public/js/ui/fieldHost.js), where the view is known to be mounted and guarded — not from this render.
+
   const [watching, setWatching] = useState(null);        // fieldId the player chose to watch (null = home)
   const [watchWho, setWatchWho] = useState(null);        // { fieldId, playerId }: the teammate picked with 前往查看
   const [drawer, setDrawer] = useState(null);            // 'enemies' | 'info' | null
@@ -1733,6 +1736,9 @@ function MatchScreen() {
       <${Ticker} />
 
       <div class="ui-slot gm__ui-slot" data-ui-slot="hud.right" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left2" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
+      <div class="ui-slot gm__ui-slot" data-ui-slot="hud.left3" aria-label=${t('界面插件')} dangerouslySetInnerHTML=${{ __html: '' }}></div>
 
       <div class="gm__corner">
         ${showMetrics && metricsOpen ? html`<${CombatMetricsPanel} myId=${myId} onClose=${() => setMetricsOpen(false)} />` : null}

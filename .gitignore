@@ -44,6 +44,17 @@ plugins/*
 !plugins/README.md
 !plugins/AGENTS.md
 !plugins/_template/
+# the four DJ plugins kept in the repository (dj-wine / dj-amiya / dj-prss / dj-wine-2): self-contained joke
+# plugins whose own mp3 and gif (no official game art), pages and READMEs ship with the repo. Explicit, exact
+# exceptions, listed after `plugins/*` so they win; every other `plugins/<id>/` stays local.
+!plugins/dj-wine/
+!plugins/dj-wine/**
+!plugins/dj-amiya/
+!plugins/dj-amiya/**
+!plugins/dj-prss/
+!plugins/dj-prss/**
+!plugins/dj-wine-2/
+!plugins/dj-wine-2/**
 
 # --- tests & logs ----------------------------------------------------------------------------------
 test/e2e/out/

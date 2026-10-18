@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "name": {
+    "zh": "粥友的酒 2",
+    "en": "Buddy's Booze 2",
+    "ja": "粥友の酒 2",
+    "ko": "죽우의 술 2"
+  },
+  "description": {
+    "zh": "战斗界面里第四颗按钮，以「粥友的酒」为基准：同一张 Amiya 动图、同一首《粥友的酒》，不带光环/名字/角标等额外装饰。点一下开演：音乐循环、界面转起来、夜店灯效亮起，并把场上所有单位换成**最初的 Amiya** GIF 替身（`units-gif` 的固定策略 `amiya`，27 帧那套，区别于 amiya2/prss）；再点一下音乐停、灯灭、单位复原。纯个人开关、只在局内出现。",
+    "en": "The fourth battle-screen button, built on 「Buddy's Booze」: the same Amiya animation, the same song, no ring / name / badge or other decoration. One click starts the DJ: the song loops, the interface turns, the night-club lighting comes on, and every unit on the field becomes the FIRST Amiya GIF stand-in (the fixed `amiya` strategy of `units-gif`, the 27-frame sheet — deliberately different from amiya2 / prss). Another click stops the music, puts the lights out and restores the units. Personal switch, in-match only.",
+    "ja": "戦闘画面の四つ目のボタン。「粥友の酒」を基準に、同じ Amiya の動画・同じ曲を使い、リング / 名前 / バッジなどの飾りは付けません。押すと DJ 開始：曲がループし、画面が回り、夜店風の照明が点き、場の全ユニットが**最初の Amiya** GIF 替身（`units-gif` の固定ストラテジー `amiya`、27 フレーム版。amiya2 / prss とは別の絵）に変わります。もう一度押すと停止し、照明が消え、ユニットが戻ります。個人用スイッチで、対戦中だけ表示されます。",
+    "ko": "전투 화면의 네 번째 버튼으로 「죽우의 술」을 기준으로 합니다. 같은 Amiya 애니메이션과 같은 곡을 쓰고, 링 / 이름 / 배지 같은 장식은 붙이지 않습니다. 한 번 누르면 DJ가 시작되어 곡이 반복되고 화면이 돌아가며 나이트클럽 조명이 켜지고, 필드의 모든 유닛이 **최초의 Amiya** GIF 대체 이미지(`units-gif`의 고정 전략 `amiya`, 27프레임 판 — amiya2 / prss와 다른 그림)로 바뀝니다. 다시 누르면 음악이 멈추고 조명이 꺼지며 유닛이 복원됩니다. 개인용 스위치이며 대전 중에만 표시됩니다."
+  },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 2,
+  "class": "ui",
+  "scope": [
+    "personal"
+  ],
+  "authors": [
+    "DJ-Amiya"
+  ],
+  "permissions": [
+    "ui.frame"
+  ],
+  "slots": [
+    "hud.left3"
+  ],
+  "entry": {
+    "client": "ui/index.html"
+  }
+}

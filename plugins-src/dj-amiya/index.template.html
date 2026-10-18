@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>若不是你突然闯进我生活</title>
+<style>
+  /* ---------------------------------------------------------------- 基本布局
+     这个页面跑在 <iframe sandbox="allow-scripts"> 里。宿主给它的是 UI_FRAME_CSP：
+       default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
+       img-src 'self' data: blob:; connect-src 'none'; sandbox allow-scripts; …
+     **没有 media-src** ⇒ 回落到 default-src 'none' ⇒ <audio>/<video> 加载任何来源都被拦
+     （同源路径 / blob: / data: 三种都实测失败）。所以音乐走 Web Audio：mp3 以 base64 内联在本页里解码，
+     不产生任何资源加载，也就不受 CSP 约束。按钮动图同理内联成 data:image/gif;base64（img-src 放行 data:，
+     而 .gif 文件本身也放不进 ui 插件的文件夹）。
+
+     ★ 根节点透明且 pointer-events:none，只有按钮与面板自己 pointer-events:auto
+       ⇒ iframe 的空白区域不吃鼠标，不会挡住棋盘 / 商店的操作。
+
+     ★ 透明还要 `color-scheme: dark`：只写 html/body 的 transparent 时，Chromium 仍会把 iframe 的空白画成
+       **不透明白框**（2026-10-17 真实 Edge 实测；宿主元素 background:transparent 也管不了）。根节点声明深色配色后
+       宿主画面才会透出来。游戏本身是深色，这里跟着深色也不会影响外观。 */
+
+  html, body {
+    margin: 0; padding: 0; background: transparent; color-scheme: dark;
+    overflow: hidden; pointer-events: none;
+  }
+  body {
+    font: 12px/1.35 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #e9e3d4; -webkit-user-select: none; user-select: none;
+  }
+  /* 位置由宿主拥有：`frame` 消息移动的是**整个 iframe**（游玩区域内的 (x,y)），页内不再自己算 left/top。
+     未放置时贴槽的右下角（槽宽 2.6rem，按钮右缘留 4px、底边贴槽底）；放置后由宿主把槽改成一个以按钮左下角为
+     基准的小盒子（is-placed），面板向上展开、按钮留在原处。
+     ★ 首次进入（没拖过、没有记忆位置）本页自己发一次 `frame`，把按钮放到**游玩区左下角**：hud.left 槽的缺省
+       落点就在那里（角落四键上方、比 hud.right 高一格），本页再往上抬一行，与「粥友的酒」的按钮错开（placeDefault）。 */
+  .am-root {
+    position: fixed; inset: 0; display: flex; flex-direction: column; gap: 6px;
+    align-items: flex-end; justify-content: flex-end; padding: 0 4px;
+    /* 宿主还没回答 frame 之前不画：否则按钮会先出现在槽的右下角、再跳到默认的左下角 */
+    opacity: 0;
+  }
+  .am-root.is-shown { opacity: 1; }
+  .am-root.is-placed { position: absolute; inset: 6px; padding: 0; align-items: flex-start; }
+
+  /* ---------------------------------------------------------------- 按钮
+     醒目：金环 + 呼吸辉光 + 开演时的旋转光弧；可拖动（4px 阈值区分点击与拖动）。
+     **只有阿米娅的动图、没有名字**：`.am-btn` 里只有光环和 GIF（可访问的名字在 `aria-label` / `title` 上）。
+     不遮棋盘：缺省在游玩区左下角、「粥友的酒」按钮的正上方（与它纵向错开），宽 68px，未开面板时只占 ~79px 高。 */
+  .am-btn {
+    flex: none;
+    pointer-events: auto; cursor: grab; position: relative;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 5px 6px 6px; border-radius: 14px; border: 1px solid rgba(240, 200, 110, .55);
+    background: linear-gradient(160deg, rgba(38, 30, 20, .92), rgba(16, 14, 12, .94));
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 3px 10px rgba(0, 0, 0, .55), 0 0 14px rgba(240, 200, 110, .22);
+    transition: box-shadow .16s ease, border-color .16s ease;
+    animation: amBreath 2.6s ease-in-out infinite;
+    touch-action: none;
+  }
+  .am-btn.is-drag { cursor: grabbing; }
+  .am-btn:hover, .am-btn:focus-visible {
+    border-color: rgba(255, 226, 150, .95);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 6px 16px rgba(0, 0, 0, .6), 0 0 22px rgba(255, 210, 120, .45);
+    outline: none;
+  }
+  .am-btn__ring {
+    position: relative; width: 54px; height: 54px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 38%, rgba(255, 214, 130, .28), rgba(0, 0, 0, .5) 70%);
+    box-shadow: inset 0 0 0 2px rgba(255, 216, 138, .5), inset 0 0 10px rgba(0, 0, 0, .6);
+  }
+  .am-btn__gif { width: 46px; height: 46px; border-radius: 50%; display: block; object-fit: cover; }
+  /* 开演时才转的光弧（作为「正在放」的状态指示；不与 GIF 自身的动画叠加） */
+  .am-btn__ring::after {
+    content: ''; position: absolute; inset: -3px; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0deg 268deg, rgba(255, 214, 130, .95) 318deg, transparent 360deg);
+    opacity: 0; transition: opacity .25s ease;
+  }
+  .am-root.is-on .am-btn__ring::after { opacity: 1; animation: amSpin 1.6s linear infinite; }
+  .am-root.is-on .am-btn { animation: amBreathOn 1.5s ease-in-out infinite; border-color: rgba(255, 226, 150, .95); }
+
+  /* ---------------------------------------------------------------- DJ 面板
+     非模态、半透明、贴右下角；离开对局时宿主把整个 iframe 摘掉，面板与声音一并消失。
+     竖直排列（列 + gap）：面板在按钮上方，将来若同一区域再加按钮就往上错开堆叠，不会盖住彼此。 */
+  .am-panel {
+    flex: none;
+    pointer-events: auto; display: none; width: 226px;
+    border: 1px solid rgba(240, 200, 110, .45); border-radius: 12px;
+    background: linear-gradient(170deg, rgba(28, 24, 18, .93), rgba(12, 11, 10, .95));
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .6), 0 0 18px rgba(240, 200, 110, .14);
+    overflow: hidden;
+  }
+  .am-root.is-open .am-panel { display: block; }
+  .am-panel__bar {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+    background: rgba(255, 216, 138, .1); border-bottom: 1px solid rgba(240, 200, 110, .28);
+  }
+  .am-panel__title { font-size: 12px; font-weight: 700; color: #ffdf9e; letter-spacing: .04em; }
+  .am-panel__sub { font-size: 10px; color: #b9ae95; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .am-panel__x {
+    pointer-events: auto; border: 0; background: transparent; color: #d8cdb4; cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 5px;
+  }
+  .am-panel__x:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+  .am-panel__body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+  .am-deck { display: flex; align-items: center; gap: 10px; }
+  .am-deck__rec {
+    position: relative; width: 46px; height: 46px; border-radius: 50%; flex: none;
+    background:
+      radial-gradient(circle at 50% 50%, #ffca6a 0 12%, #1b1712 13% 100%),
+      repeating-radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .07) 0 1px, transparent 1px 3px);
+    box-shadow: inset 0 0 0 1px rgba(255, 216, 138, .35);
+  }
+  .am-root.is-on .am-deck__rec { animation: amSpin 1.8s linear infinite; }
+  .am-deck__meta { min-width: 0; }
+  .am-deck__name { font-size: 11px; color: #ffdf9e; font-weight: 700; white-space: nowrap; }
+  .am-deck__state { font-size: 10px; color: #b9ae95; font-variant-numeric: tabular-nums; }
+
+  .am-viz { width: 100%; height: 40px; display: block; border-radius: 6px; background: rgba(0, 0, 0, .42); }
+  .am-prog { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; }
+  .am-prog__fill { height: 100%; width: 0; background: linear-gradient(90deg, #ffca6a, #ffe6ad); }
+  .am-ctrls { display: flex; gap: 6px; }
+  .am-ctrls button {
+    pointer-events: auto; flex: 1 1 auto; cursor: pointer; font: inherit; font-size: 11px;
+    padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(240, 200, 110, .45);
+    background: rgba(255, 216, 138, .12); color: #ffe1a4; font-weight: 700;
+  }
+  .am-ctrls button:hover { background: rgba(255, 216, 138, .24); }
+  .am-ctrls button[data-act="toggle"] { border-color: rgba(255, 216, 138, .8); background: rgba(255, 216, 138, .2); }
+  .am-hint { font-size: 10px; color: #9c937e; }
+  .am-err { font-size: 10px; color: #ff9c8a; display: none; }
+  .am-root.is-err .am-err { display: block; }
+
+  @keyframes amSpin { to { transform: rotate(360deg); } }
+  @keyframes amBreath {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 3px 10px rgba(0, 0, 0, .55), 0 0 12px rgba(240, 200, 110, .18); }
+    50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 3px 10px rgba(0, 0, 0, .55), 0 0 20px rgba(240, 200, 110, .42); }
+  }
+  @keyframes amBreathOn {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 3px 12px rgba(0, 0, 0, .6), 0 0 16px rgba(255, 210, 120, .4); }
+    50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 3px 12px rgba(0, 0, 0, .6), 0 0 28px rgba(255, 210, 120, .7); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .am-btn, .am-root.is-on .am-btn, .am-root.is-on .am-btn__ring::after, .am-root.is-on .am-deck__rec { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="am-root" id="root">
+  <div class="am-panel" id="panel" role="dialog" aria-label="若不是你突然闯进我生活 DJ">
+    <div class="am-panel__bar" id="panelbar">
+      <span class="am-panel__title">若不是你突然闯进我生活 · DJ</span>
+      <span class="am-panel__sub" id="clock">00:00 / 00:00</span>
+      <button type="button" class="am-panel__x" id="close" title="收起（音乐继续）" aria-label="收起">✕</button>
+    </div>
+    <div class="am-panel__body">
+      <div class="am-deck">
+        <div class="am-deck__rec" aria-hidden="true"></div>
+        <div class="am-deck__meta">
+          <div class="am-deck__name">若不是你突然闯进我生活</div>
+          <div class="am-deck__state" id="state">未开始</div>
+        </div>
+      </div>
+      <canvas class="am-viz" id="viz" width="420" height="80" aria-hidden="true"></canvas>
+      <div class="am-prog"><div class="am-prog__fill" id="fill"></div></div>
+      <div class="am-ctrls">
+        <button type="button" data-act="toggle" id="toggle">▶ 开始</button>
+        <button type="button" data-act="close" id="close2">收起</button>
+      </div>
+      <div class="am-hint">再点一下按钮可停止；离开对局会自动停止。</div>
+      <div class="am-err" id="err"></div>
+    </div>
+  </div>
+
+  <div class="am-btn" id="btn" role="button" tabindex="0" aria-label="若不是你突然闯进我生活" title="若不是你突然闯进我生活 · 点一下开始 DJ（可拖动改位置）">
+    <span class="am-btn__ring"><img class="am-btn__gif" id="gif" src="__GIF_DATA_URI__" alt="" draggable="false"></span>
+  </div>
+</div>
+
+<script>
+/* ================================================================================
+   若不是你突然闯进我生活 —— 局内第二颗 DJ 按钮（ui 插件 / hud.left）
+
+   行为（形态参考上游 cyanfish.dj-all 的「局内入口 + 半透明浮窗」，代码全部自己写、未复制其 GPL 源码）：
+     · 按钮只有一个阿米娅的动图、**不显示名字**（`aria-label` / `title` 这类不可见的可访问性文字保留）
+     · 按钮初始贴在**游玩区左下角、「粥友的酒」按钮的正上方**（与它纵向错开；见下面的 placeDefault），之后可拖到任何位置
+     · 点一下：开始 DJ（开演）+ 放音乐（循环）；面板展开
+     · 再点一下：停止音乐并收起面板（按钮上的 GIF 仍在，随时可以再开）
+     · 按钮可拖到游玩区域的任何位置：本页发 `frame` 让宿主移动**整块 iframe**（不再只能在框内挪），
+       位置按游玩区域比例记住，刷新 / 重进对局后恢复
+     · 开演时发 `effect: units-gif` + `effect: dj-rotate` + `effect: dj-neon`：**场上所有单位换成阿米娅的 GIF 替身**
+       （宿主只切可见性，可逆），**同时战斗界面与棋盘上的棋子 / 敌人 / 装备一起转起来 + 压缩**（与「粥友的酒」同一个
+       宿主管线：HUD 加类、画布改容器变换），并点亮**宿主自己的夜店 RGB 灯效**（整屏两层纯装饰，宿主建/拆，本页不带
+       任何光效代码或样式 —— 三个 DJ 插件共用这同一个宿主盒子）；
+       停止 / 关面板 / 离开对局立即把三条都发 on:false
+     · 离开对局：宿主把 iframe 移进隐藏的 #sp-ui-park ⇒ 本页被销毁、AudioContext 一并释放，不留后台播放
+       （另外还兜了 pagehide / beforeunload）
+
+   音频：宿主 UI_FRAME_CSP 没有 media-src（回落到 default-src 'none'），
+        <audio>/<video> 加载任何来源都被拦（同源路径 / blob: / data: 都试过，全失败）。
+        所以用 Web Audio：mp3 以 base64 内联（见下面那个 B64 常量 —— 生成时由构建脚本填入真数据），
+        decodeAudioData 解码后经 AudioBufferSource → Analyser → destination 播放。
+        不产生资源加载 ⇒ 不受 CSP 限制。按钮动图同样由构建脚本内联成 data URI。
+   ================================================================================ */
+(function () {
+  'use strict';
+
+  var B64 = '__SONG_B64__';
+
+  var root = document.getElementById('root');
+  var btn = document.getElementById('btn');
+  var panel = document.getElementById('panel');
+  var panelbar = document.getElementById('panelbar');
+  var viz = document.getElementById('viz');
+  var clock = document.getElementById('clock');
+  var stateEl = document.getElementById('state');
+  var fill = document.getElementById('fill');
+  var errEl = document.getElementById('err');
+  var toggleBtn = document.getElementById('toggle');
+
+  /** 放置后的 iframe 是「以按钮左下角为基准的小盒子」：四周留 PAD；面板 226 宽（含边框 228），帧宽 228 + 2*PAD。 */
+  var PAD = 6;
+  var PANEL_W = 240;
+  var DRAG_SLOP = 4;
+  var DRAG_MS = 60;
+
+  var ctx = null;        // AudioContext
+  var buffer = null;     // 解码后的 AudioBuffer
+  var node = null;       // 当前正在播的 AudioBufferSourceNode
+  var gain = null;       // 这一段的 GainNode：source → gain → analyser → destination（停止时 1 秒淡出）
+  var fading = [];       // 正在按 1 秒 ramp 收尾的 source（新开播不影响它们）
+  var lastGain = null;   // 最近一次淡出的 GainNode（只给验收读它实际衰减到多少）
+  var analyser = null;
+  var bins = null;       // 频谱数据
+  var raf = 0;
+  var startedAt = 0;     // 本段开始播放时的 ctx.currentTime（进度只算这一段）
+  var playing = false;
+  var decoding = false;
+  var failed = false;
+
+  /* 宿主对插件这块 frame 的回执（也是拖动时的起点）：{ x, y, w, h, areaW, areaH }。
+     x/y 是 iframe 左上角在**游玩区域**（战斗屏）里的 CSS px，areaW/areaH 是游玩区域大小。
+     placed = 本页已经让宿主接管位置（第一次拖动或恢复记忆之后）。 */
+  var frame = null;
+  var placed = false;
+  var saved = null;      // { fx, fy }：按钮左上角占游玩区域的比例
+  var restored = false;
+  var defaulted = false; // 已经发过默认的左下角落点（没拖过、也没记忆位置时）
+  var shown = false;     // 已经可以显示（放到位置了，或兜底计时到）
+
+  function post(msg) { try { parent.postMessage(msg, '*'); } catch (e) { /* ignore */ } }
+  function resize(h) { post({ v: 1, t: 'resize', height: h }); }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  /** 把整块 iframe 放到游玩区域的 (x, y)，大小 (w, h)；宿主会夹进游玩区域并把实际值回给插件。 */
+  function sendFrame(x, y, w, h) {
+    post({ v: 1, t: 'frame', x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+  }
+  /** 宿主的受控整活通道，开演 / 复原都**三条一起**发：
+   *   · `units-gif` —— 场上所有单位换成阿米娅的 GIF 替身（宿主只切可见性，可逆）；受控参数 `variant` 固定发
+   *     `amiya2`（只用阿米娅这一套图集；枚举，别的值宿主按 PLUGIN_SHAPE 拒绝）；
+   *   · `dj-rotate` —— 战斗界面转起来（宿主给 HUD 加类）**且**棋盘上的棋子 / 敌人 / 装备一起转 + 压缩（宿主改画布容器变换）；
+   *   · `dj-neon` —— 宿主的夜店 RGB 灯效（整屏两层纯装饰、`pointer-events:none`；与「粥友的酒」同一个宿主盒子，
+   *     本页不带任何光效代码或样式）。三份 DJ 模板发的都是这一个名字：宿主按插件记账，多个插件同时要也只有**一个**
+   *     盒子（不叠层），只要还有插件要就保持亮，全都不要 / 离开对局才整盒移除、界面逐值复原。
+   *  宿主按插件分别记账、各自可逆；谁都不发的那条就停着。 */
+  function effect(on) {
+    var gif = { v: 1, t: 'effect', name: 'units-gif', on: !!on };
+    if (on) gif.variant = 'amiya2';
+    post(gif);
+    post({ v: 1, t: 'effect', name: 'dj-rotate', on: !!on });
+    post({ v: 1, t: 'effect', name: 'dj-neon', on: !!on });
+  }
+  function btnSize() {
+    return { w: Math.ceil(btn.offsetWidth) || 68, h: Math.ceil(btn.offsetHeight) || 67 };
+  }
+  /** 当前状态下这块 frame 想要的盒子。面板宽固定 226（不随帧宽换行），所以收起时也能量出展开高度。 */
+  function frameSize() {
+    var b = btnSize();
+    if (!root.classList.contains('is-open')) return { w: b.w + PAD * 2, h: b.h + PAD * 2 };
+    return { w: Math.max(b.w + PAD * 2, PANEL_W), h: b.h + PAD * 2 + 6 + panel.offsetHeight };
+  }
+  /**
+   * 面板开 / 合后把新尺寸交给宿主。已放置时按钮贴在 frame 左下角，所以高度增加多少，y 就上移多少
+   * （按钮留在原地、面板向上长）；未放置时沿用 resize（槽本身是底边对齐的，按钮不会动）。
+   */
+  function applySize() {
+    var size = frameSize();
+    if (placed && frame && frame.areaW > 0) {
+      sendFrame(frame.x, frame.y - (size.h - frame.h), size.w, size.h);
+    } else {
+      resize(size.h);
+    }
+  }
+  /** 取回上次的按钮位置：存的是按钮左上角比例，换分辨率不会跑到屏幕外。等宿主的 frame 回答到了再换算。 */
+  function restorePlace() {
+    if (restored || !saved || !frame || !(frame.areaW > 0) || !(frame.areaH > 0)) return;
+    restored = true;
+    var size = frameSize();
+    var b = btnSize();
+    var x = saved.fx * frame.areaW - PAD;
+    var y = saved.fy * frame.areaH - size.h + PAD + b.h;
+    placed = true;
+    root.classList.add('is-placed');
+    sendFrame(clamp(x, 0, Math.max(0, frame.areaW - size.w)), clamp(y, 0, Math.max(0, frame.areaH - size.h)), size.w, size.h);
+  }
+
+  /** 让按钮显示出来（放到位置之后；或兜底计时到）。 */
+  function reveal() {
+    if (shown) return;
+    shown = true;
+    root.classList.add('is-shown');
+  }
+
+  /**
+   * 默认落点：**游玩区左下角、「粥友的酒」的按钮正上方**（hud.left 槽的缺省落点也在左下角，但比 hud.right 高一格）。
+   *   · 左缘与角落四键（交流 / ⚙ / 📖 / ⛶，css: left/bottom .24rem）对齐；
+   *   · 底边抬到四键**上方**：.24rem（键的下缘）+ 两行 .56rem（窄屏手机上四键会折成两行）+ .1rem 间隔，
+   *     并给一个 92px 的地板（手机上按钮有 34px 的触摸下限，rem 换算会偏小）；
+   *   · rem 用主题的同一条公式（css/theme.css：clamp(40, min(vw/19.2, vh/10.8), 240)）从游玩区域尺寸反推，
+   *     所以不读宿主 CSS 也能随窗口缩放。
+   * 拖过之后（storage 里存了 frame）不再走这里：记忆位置优先。
+   */
+  function placeDefault() {
+    if (defaulted || placed || !frame || !(frame.areaW > 0) || !(frame.areaH > 0)) return false;
+    defaulted = true;
+    var size = frameSize();
+    var rem = clamp(Math.min(frame.areaW / 19.2, frame.areaH / 10.8), 40, 240);
+    var left = Math.round(rem * 0.24);
+    /* 与「粥友的酒」（hud.right，左下角偏下）**纵向错开**：它的按钮 85px 高 + 8px 间隔 ⇒ 这个按钮抬到它上面，
+       两个按钮永远不重叠；两个都还能各自拖走、各自记忆。 */
+    var STACK = 104;
+    var bottom = Math.max(Math.round(rem * 1.46), 92) + STACK;
+    var x = clamp(left - PAD, 0, Math.max(0, frame.areaW - size.w));
+    var y = clamp(frame.areaH - bottom - size.h + PAD, 0, Math.max(0, frame.areaH - size.h));
+    placed = true;
+    root.classList.add('is-placed');
+    sendFrame(x, y, size.w, size.h);
+    reveal();
+    return true;
+  }
+
+  function fmt(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  /**
+   * 进度条归零：开播 / 停止 / 收起面板 / 离场都走这里。
+   * 进度 = **本次播放**的秒数（不再累计上一段），所以每次开播都从 0 重新计时；音乐同样从头（node.start(0)）。
+   * 收起面板时音乐可以继续（见 closePanel），但进度条按验收要求归零，面板下次打开从 0 起。
+   */
+  function resetProgress() {
+    startedAt = ctx ? ctx.currentTime : 0;
+    clock.textContent = '00:00 / ' + fmt(buffer ? buffer.duration : 0);
+    fill.style.width = '0%';
+  }
+  function fail(msg) {
+    failed = true;
+    errEl.textContent = msg;
+    root.classList.add('is-err');
+    stateEl.textContent = '音频不可用';
+    if (playing) stop();
+  }
+
+  /* ---------------------------------------------------------------- 解码
+     base64 → Uint8Array → ArrayBuffer，一次性；之后复用同一个 buffer。 */
+  function base64ToArrayBuffer(b64) {
+    var bin = atob(b64);
+    var n = bin.length;
+    var u8 = new Uint8Array(n);
+    for (var i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+    return u8.buffer;
+  }
+
+  function ensureContext() {
+    if (ctx) return ctx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { fail('这个浏览器没有 Web Audio，放不了音乐'); return null; }
+    try { ctx = new AC(); } catch (e) { fail('建不了 AudioContext：' + (e && e.message ? e.message : e)); return null; }
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.78;
+    analyser.connect(ctx.destination);
+    bins = new Uint8Array(analyser.frequencyBinCount);
+    return ctx;
+  }
+
+  function decode(done) {
+    if (buffer) { done(true); return; }
+    if (decoding) return;
+    if (!ensureContext()) { done(false); return; }
+    decoding = true;
+    stateEl.textContent = '解码中…';
+    var ab;
+    try {
+      ab = base64ToArrayBuffer(B64);
+    } catch (e) {
+      decoding = false; fail('音频数据坏了：' + (e && e.message ? e.message : e)); done(false); return;
+    }
+    try {
+      var p = ctx.decodeAudioData(ab, function (buf) {
+        decoding = false; buffer = buf; done(true);
+      }, function (e) {
+        decoding = false; fail('音频解码失败：' + (e && e.message ? e.message : e)); done(false);
+      });
+      /* 老实现只认回调并返回 undefined；新实现返回 Promise —— 失败已由回调报过，这里只吞掉 rejection。 */
+      if (p && typeof p.then === 'function') p.then(null, function () { /* 回调已处理 */ });
+    } catch (e) {
+      decoding = false; fail('音频解码失败：' + (e && e.message ? e.message : e)); done(false);
+    }
+  }
+
+  /* ---------------------------------------------------------------- 播放 / 停止 */
+  function start() {
+    if (playing) return;
+    if (failed) { root.classList.add('is-err'); return; }
+    /* 开播先把进度条归零：停止时不再累计上一段，每次开播都从 0 重新计时（音乐同样从头）。 */
+    resetProgress();
+    decode(function (ok) {
+      if (!ok || playing) return;
+      try {
+        if (ctx.state === 'suspended') ctx.resume();
+        node = ctx.createBufferSource();
+        node.buffer = buffer;
+        node.loop = true;
+        /* 每段播放一个新 GainNode（值 1）：source → gain → analyser → destination，停止时只 ramp 这个 gain。 */
+        gain = ctx.createGain();
+        gain.gain.value = 1;
+        node.connect(gain);
+        gain.connect(analyser);
+        lastGain = null;
+        startedAt = ctx.currentTime;
+        node.start(0);
+        playing = true;
+        root.classList.add('is-on');
+        stateEl.textContent = '正在播放 · 循环';
+        toggleBtn.textContent = '■ 停止';
+        /* 受控整活：开演 ⇒ 宿主的单位替身层打开（每个在场单位一个阿米娅 GIF，只切可见性）+ 界面与棋子/敌人/装备转起来
+           + 宿主的夜店灯效点亮；停止 / 关面板 / 离开都在下面三条一起关掉。 */
+        effect(true);
+        resetProgress();
+        draw();
+      } catch (e) { fail('播放失败：' + (e && e.message ? e.message : e)); }
+    });
+  }
+
+  function stop() {
+    if (node) {
+      var old = node, oldGain = gain;
+      var now = ctx ? ctx.currentTime : 0;
+      /* 1 秒淡出：把当前 gain 钉在 now，再 linearRamp 到 0；source 到 now + 1 秒才停，期间保持连接 —— 不是硬切。
+         新开播会新建 source + gain，不需要等这一段收完。 */
+      try {
+        if (oldGain) {
+          oldGain.gain.cancelScheduledValues(now);
+          oldGain.gain.setValueAtTime(oldGain.gain.value, now);
+          oldGain.gain.linearRampToValueAtTime(0, now + 1.0);
+          lastGain = oldGain;
+        }
+        old.onended = function () {
+          try { old.disconnect(); } catch (e2) { /* ignore */ }
+          try { if (oldGain) oldGain.disconnect(); } catch (e2) { /* ignore */ }
+          var at = fading.indexOf(old);
+          if (at >= 0) fading.splice(at, 1);
+        };
+        old.stop(now + 1.0);
+        fading.push(old);
+      } catch (e) {
+        try { old.disconnect(); } catch (e2) { /* ignore */ }
+        try { if (oldGain) oldGain.disconnect(); } catch (e2) { /* ignore */ }
+      }
+      node = null;
+      gain = null;
+    }
+    playing = false;
+    root.classList.remove('is-on');
+    stateEl.textContent = buffer ? '已停止' : '未开始';
+    toggleBtn.textContent = '▶ 开始';
+    /* 立即复原：替身层、界面旋转与夜店灯效三条一起关掉，单位视图自己 update(0) 恢复、画布容器变换逐值还回原值、
+       灯效盒子整盒移除，场上没有残留。 */
+    effect(false);
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    /* 停止即把进度归零：下次开播从 0 起。 */
+    resetProgress();
+    clearViz();
+  }
+
+  function elapsed() {
+    /* 进度只算**本次播放**：从本段开始的 ctx.currentTime 起，不叠加上一段（旧实现累计 elapsedOffset，
+       音乐从头播而进度条接着上次 —— 就是「关闭再开启进度不归零」那个 bug）。 */
+    if (buffer && playing) return (ctx.currentTime - startedAt) % buffer.duration;
+    return 0;
+  }
+
+  /* ---------------------------------------------------------------- 可视化
+     真数据：AnalyserNode 的频谱。28 根柱子，够像样又不引任何依赖。 */
+  var BARS = 28;
+  function clearViz() {
+    var g = viz.getContext('2d');
+    if (g) g.clearRect(0, 0, viz.width, viz.height);
+  }
+  function draw() {
+    if (!playing) { raf = 0; return; }
+    var g = viz.getContext('2d');
+    if (!g) { raf = 0; return; }
+    analyser.getByteFrequencyData(bins);
+    var W = viz.width, H = viz.height;
+    g.clearRect(0, 0, W, H);
+    /* 只取前 3/4 的频段（高频基本是空的） */
+    var usable = Math.floor(bins.length * 0.75);
+    var step = Math.max(1, Math.floor(usable / BARS));
+    var bw = W / BARS;
+    for (var i = 0; i < BARS; i++) {
+      var sum = 0;
+      for (var k = 0; k < step; k++) sum += bins[i * step + k] || 0;
+      var v = (sum / step) / 255;
+      var h = Math.max(2, Math.round(v * (H - 6)));
+      var x = i * bw + 1;
+      var y = H - h - 2;
+      var grad = g.createLinearGradient(0, y, 0, H);
+      grad.addColorStop(0, 'rgba(255, 226, 150, .95)');
+      grad.addColorStop(1, 'rgba(255, 150, 80, .55)');
+      g.fillStyle = grad;
+      g.fillRect(x, y, Math.max(1, bw - 2), h);
+    }
+    var e = elapsed(), d = buffer.duration;
+    clock.textContent = fmt(e) + ' / ' + fmt(d);
+    fill.style.width = Math.round((e / d) * 100) + '%';
+    raf = requestAnimationFrame(draw);
+  }
+
+  /* ---------------------------------------------------------------- 开 / 关 */
+  function openPanel() {
+    if (panel.__open) return;
+    panel.__open = true;
+    root.classList.add('is-open');
+    applySize();
+    /* 面板再次打开：进度条从 0 起（本轮播放重新计时），不接着上次收起时的位置。 */
+    resetProgress();
+    if (playing) draw();
+  }
+  function closePanel() {
+    if (!panel.__open) return;
+    panel.__open = false;
+    root.classList.remove('is-open');
+    /* 关面板也复原界面（音乐可以继续，整活不再转）：验收要求「停止 / 关面板 / 离开对局」都立即复原。 */
+    effect(false);
+    /* 收起时进度条同样归零（音乐若仍在播，面板下次打开从 0 起计时）；面板收起时不再逐帧重画，归零后不会再涨回去。 */
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    resetProgress();
+    clearViz();
+    applySize();
+  }
+  /** 按钮 = 总开关：开演 + 放音乐 + 展开；再点 = 停止 + 收起。 */
+  function toggle() {
+    if (playing) { stop(); closePanel(); return; }
+    openPanel();
+    start();
+  }
+
+  /* ---------------------------------------------------------------- 拖动（宿主拥有 iframe 的位置）
+     4px 阈值：位移小于它算「点击」（开 / 关 DJ），大于它算「拖动」（移动整块 iframe）。
+     ★ 用 screenX/screenY 而不是 clientX/clientY：iframe 在拖动中会跟着移动，client 坐标会随 frame 一起变，
+       那样会「追不上」指针；screen 坐标只跟指针走，是稳定参照。
+     ★ 位置由宿主的 `frame` 消息放置（夹在游玩区域内），本页只把「按钮左上角的屏幕位置」换算成 frame 的
+       左上角。位置按游玩区域的比例用宿主 storage 记住，刷新 / 重进对局后恢复。 */
+  function bindDrag(handle, mode) {
+    var down = null;
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      /* 标题栏上还有按钮（✕）：从按钮上按下时不要开始拖动，否则 pointer capture 会把 click 从按钮身上拿走。 */
+      if (mode === 'panel' && e.target && e.target.closest && e.target.closest('button')) return;
+      if (!frame) { down = { noFrame: true, moved: false }; return; }
+      var r = handle.getBoundingClientRect();
+      down = {
+        sx: e.screenX, sy: e.screenY, fx: frame.x, fy: frame.y,
+        bx: r.left, by: r.top, size: frameSize(), moved: false, at: 0,
+        x: frame.x, y: frame.y,
+      };
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      handle.classList.add('is-drag');
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (!down || down.noFrame) return;
+      var dx = e.screenX - down.sx, dy = e.screenY - down.sy;
+      if (!down.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
+      down.moved = true;
+      var x, y;
+      if (mode === 'button') {
+        var b = btnSize();
+        /* 按钮在放置后的 frame 左下角（inset PAD）：先算按钮想去的屏幕位置，再倒推 frame 左上角。 */
+        x = down.fx + down.bx + dx - PAD;
+        y = down.fy + down.by + dy + PAD + b.h - down.size.h;
+      } else {
+        /* 面板与 frame 一起平移，抓住点相对 frame 的偏移不变 */
+        x = down.fx + dx;
+        y = down.fy + dy;
+      }
+      down.x = x;
+      down.y = y;
+      if (!placed) { placed = true; root.classList.add('is-placed'); }
+      var now = Date.now();
+      if (now - down.at >= DRAG_MS) { down.at = now; sendFrame(x, y, down.size.w, down.size.h); }
+      e.preventDefault();
+    });
+    function end() {
+      if (!down) return;
+      var moved = down.moved, x = down.x, y = down.y, size = down.size, noFrame = down.noFrame;
+      down = null;
+      handle.classList.remove('is-drag');
+      if (noFrame || !moved) { if (mode === 'button') toggle(); return; }
+      var areaW = frame && frame.areaW > 0 ? frame.areaW : 1;
+      var areaH = frame && frame.areaH > 0 ? frame.areaH : 1;
+      /* 与宿主同一套夹取：存夹过的位置，恢复时不会差一格 */
+      var cx = clamp(x, 0, Math.max(0, areaW - size.w));
+      var cy = clamp(y, 0, Math.max(0, areaH - size.h));
+      sendFrame(cx, cy, size.w, size.h);
+      var b = btnSize();
+      /* 存「按钮左上角」而不是 frame 左上角：面板开着时 frame 顶部在面板上方，存它会让刷新后按钮跳高。 */
+      post({ v: 1, t: 'storage', op: 'set', key: 'frame', value: {
+        fx: clamp((cx + PAD) / areaW, 0, 1),
+        fy: clamp((cy + size.h - PAD - b.h) / areaH, 0, 1),
+      } });
+    }
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    /* 拖动结束不该再触发一次 click（否则一次拖动会顺手又开关一遍）。 */
+    handle.addEventListener('click', function (e) { e.preventDefault(); });
+    if (mode === 'button') {
+      handle.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
+      });
+    }
+  }
+
+  bindDrag(btn, 'button');
+  bindDrag(panelbar, 'panel');
+
+  toggleBtn.addEventListener('click', function (e) { e.preventDefault(); toggle(); });
+  document.getElementById('close').addEventListener('click', function (e) { e.preventDefault(); closePanel(); });
+  document.getElementById('close2').addEventListener('click', function (e) { e.preventDefault(); closePanel(); });
+
+
+  /* 离开对局 / 页面被销毁：音乐按 1 秒淡出收尾，再关 AudioContext（立刻 close 会把淡出切成硬切）。 */
+  function kill() {
+    try { stop(); } catch (e) { /* ignore */ }
+    if (ctx) setTimeout(function () { try { ctx.close(); } catch (e) { /* ignore */ } }, 1100);
+  }
+  window.addEventListener('pagehide', kill);
+  window.addEventListener('beforeunload', kill);
+
+  /* ---------------------------------------------------------------- 与宿主握手
+     回 ready、报要 hud.left、报收起时的高度，并取回记住的按钮位置。
+     宿主的 `frame` 回答给出本块 iframe 当前位置与游玩区域大小：恢复记忆、以及第一次拖动，都以它为起点。 */
+  window.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.v !== 1 || typeof m.t !== 'string') return;
+    if (m.t === 'frame' && typeof m.x === 'number' && typeof m.y === 'number'
+      && typeof m.areaW === 'number' && m.areaW > 0 && typeof m.areaH === 'number' && m.areaH > 0) {
+      frame = { x: m.x, y: m.y, w: m.w, h: m.h, areaW: m.areaW, areaH: m.areaH };
+      restorePlace();
+      /* 没有记忆位置（没拖过 / 首次安装）⇒ 本页把按钮放到左下角；有记忆位置时 restorePlace 已经放好 */
+      if (!placed) placeDefault();
+      reveal();
+      return;
+    }
+    if (m.t === 'storage' && m.op === 'get' && m.ok && m.value && typeof m.value === 'object'
+      && isFinite(m.value.fx) && isFinite(m.value.fy)) {
+      saved = { fx: clamp(+m.value.fx, 0, 1), fy: clamp(+m.value.fy, 0, 1) };
+      restorePlace();
+    }
+  });
+  post({ v: 1, t: 'ready' });
+  post({ v: 1, t: 'slot', slot: 'hud.left' });
+  resize(frameSize().h);
+  post({ v: 1, t: 'storage', op: 'get', key: 'frame' });
+  /* 兜底：宿主没回答 frame（没有游玩区域等）也把按钮显示出来，不让它一直藏着 */
+  setTimeout(reveal, 700);
+
+  /* 只读句柄，给验收 / 调试用（不参与任何游戏协议）。 */
+  window.__AMIYA__ = {
+    isPlaying: function () { return playing; },
+    /** 这一段的 GainNode 值：停止后的 1 秒淡出期间读到的是实际衰减值。 */
+    gain: function () { return gain ? gain.gain.value : (lastGain ? lastGain.gain.value : 0); },
+    /** 还在出声的 source 数：正在播的 1 个 + 正在 1 秒淡出的；1.1 s 后是 0。 */
+    activeSources: function () { return (node ? 1 : 0) + fading.length; },
+    /** Analyser 的时域 RMS（口述的「1 秒内平滑降到 0」在真机上就是这条曲线）。 */
+    rms: function () {
+      if (!analyser) return 0;
+      try {
+        var d = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(d);
+        var s = 0;
+        for (var i = 0; i < d.length; i++) s += d[i] * d[i];
+        return Math.sqrt(s / d.length);
+      } catch (e) { return 0; }
+    },
+    /** 本页发给宿主的 `units-gif` 策略（固定 'amiya2'：只用阿米娅这一套图集）。 */
+    strategy: function () { return 'amiya2'; },
+    ctxState: function () { return ctx ? ctx.state : null; },
+    position: function () { return elapsed(); },
+    duration: function () { return buffer ? buffer.duration : 0; },
+    /** 进度条宽度（%）：开播 / 停止 / 收起后应为 0。 */
+    progressWidth: function () { return parseFloat(fill.style.width) || 0; },
+    /** 时钟文字（`00:00 / mm:ss`）。 */
+    clockText: function () { return clock.textContent; },
+    energy: function () {
+      if (!analyser) return 0;
+      var d = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(d);
+      var s = 0;
+      for (var i = 0; i < d.length; i++) s += d[i];
+      return s;
+    },
+    panelOpen: function () { return !!panel.__open; },
+    placed: function () { return placed; },
+    /** 默认落点是否已经用过（没拖过、也没记忆位置时的左下角） */
+    defaulted: function () { return defaulted; },
+    frame: function () { return frame ? { x: frame.x, y: frame.y, w: frame.w, h: frame.h, areaW: frame.areaW, areaH: frame.areaH } : null; },
+    toggle: toggle,
+    stop: stop
+  };
+})();
+</script>
+</body>
+</html>

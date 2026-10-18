@@ -255,7 +255,9 @@ describe('the postMessage contract', () => {
     assert.equal(frameLoadDecision(1), 'entry');
     assert.equal(frameLoadDecision(2), 'destroy');
     assert.equal(frameLoadDecision(3), 'destroy');
-    assert.equal(frameLoadDecision(0), 'destroy');
+    // 0: the entry has not finished loading — its own script may already have posted (heavy pages: a gif, an mp3).
+    // Those messages are held, never read as a leave (d3a4fdbc, UI_LIMITS.heldMessages).
+    assert.equal(frameLoadDecision(0), 'loading');
     assert.match(UI_FRAME_CSP, /(^|; )sandbox allow-scripts(;|$)/);
     assert.doesNotMatch(UI_FRAME_CSP, /allow-same-origin/);
     assert.match(UI_FRAME_CSP, /frame-ancestors 'self'/);
@@ -307,7 +309,8 @@ describe('the registry and /p/', () => {
     }), { 'art/a.png': 'png' });
     const bad = [
       ['plugins/no-entry', uiManifest({ entry: undefined, slots: ['hud.right'] })],
-      ['plugins/bad-slot', uiManifest({ slots: ['hud.left'] })],
+      // a slot the host does not grant (hud.left/hud.left2/hud.left3 are granted now: UI_SLOT_IDS)
+      ['plugins/bad-slot', uiManifest({ slots: ['hud.bottom'] })],
       ['plugins/outside', uiManifest()],
       ['plugins/cosmetic-slots', cosmetic({ slots: ['hud.right'], assets: { chars: { char_102_texas: { avatar: 'a.png' } } } })],
     ];

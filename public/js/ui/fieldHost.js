@@ -14,14 +14,17 @@ import { data } from '../data.js';
 import { audio } from '../audio.js';
 import { store } from '../store.js';
 import { settingsStore } from './settings.js';
+import { setFieldView } from './pluginFrame.js';
 
 const LOAD_TIMEOUT_MS = 12000;
 const METHODS = ['setStage', 'setCamera', 'setPrep', 'enterBattle', 'pushSnapshot', 'pushEvents', 'highlightTiles', 'on', 'resize', 'destroy'];
 // direction-step hooks (ui/facingWheel.js): optional — the wheel falls back to the engine's dev hooks when absent;
 // setPen (enemy preview pen list), prepField ({ kind, side, mirror } of the Final Assault prep), stripesUnder (the view
 // stripes range previews under the units itself), replayDeploys (the round start's Start-clip replay, PR #416) —
-// render/app.js; the DOM fallback lacks them (→ null)
-const OPTIONAL = ['pieceScreenRect', 'pieceAtClientPoint', 'setSettings', 'setMe', 'setSkins', 'off', 'tileScreen', 'holdPiece', 'setPieceDir', 'setPen', 'prepField', 'stripesUnder', 'replayDeploys'];
+// render/app.js; the DOM fallback lacks them (→ null). setUnitsGif / setDjRotate are the ui plugins' host visuals
+// (shared/plugins/ui.js UI_EFFECTS, drawn by render/unitsGif.js and render/djRotate.js): the guard MUST forward them,
+// or ui/pluginFrame.js sees `fieldView.setUnitsGif === undefined` and silently drops the effect.
+const OPTIONAL = ['pieceScreenRect', 'pieceAtClientPoint', 'setSettings', 'setMe', 'setSkins', 'off', 'tileScreen', 'holdPiece', 'setPieceDir', 'setPen', 'prepField', 'stripesUnder', 'replayDeploys', 'setUnitsGif', 'setDjRotate'];
 
 /**
  * Camera padding (px) that keeps the field clear of the DOM HUD (top bar + bond strip, team panel, shop bar /
@@ -294,6 +297,10 @@ export function useFieldView(hostRef) {
         view.setMe?.(store.get().me?.playerId || null);
         view.setSkins?.(store.get().match?.public?.players);
         globalThis.__SP_VIEW__ = view; // dev / E2E introspection (view.raw.stats?.())
+        // The ui plugins' host visuals that draw on the field (`units-gif`, `dj-rotate`) live on this very view: hand it
+        // over here, where it is known to be mounted and guarded — not from the screen's render, where the view is still
+        // loading and every re-render would hand over a different object (public/js/ui/pluginFrame.js setFieldView).
+        setFieldView(view);
         setState({ view, kind: view.kind });
       }, (err) => { if (!dead && !controller.signal.aborted) console.error('[field] mount failed', err); });
     const unsub = settingsStore.subscribe((s) => viewRef.current?.setSettings?.(s));
@@ -323,6 +330,8 @@ export function useFieldView(hostRef) {
       document.removeEventListener('visibilitychange', onRetry);
       // the dev hook must not keep the destroyed view — and through its host the whole detached match screen — alive
       if (viewRef.current && globalThis.__SP_VIEW__ === viewRef.current) globalThis.__SP_VIEW__ = null;
+      // a screen that unmounts takes the field visuals with it: no stand-in layer / turning HUD left on a dead view
+      setFieldView(null);
       viewRef.current?.destroy();
       viewRef.current = null;
     };

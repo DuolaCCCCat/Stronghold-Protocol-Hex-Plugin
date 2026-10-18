@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "name": {
+    "zh": "粥友的酒",
+    "en": "Buddy's Booze",
+    "ja": "粥友の酒",
+    "ko": "죽우의 술"
+  },
+  "description": {
+    "zh": "战斗界面左下角一颗「粥友的酒」按钮（角落四键上方、不压商店条；可拖走，位置记住）：点一下开始 DJ 并放歌（循环），再点一下停。纯个人开关、只在局内出现，不开的人完全看不到、也不会加载任何东西。",
+    "en": "A 「Buddy's Booze」 button in the bottom-left of the battle screen (above the corner buttons, clear of the shop bar; drag it anywhere, its place is remembered): one click starts the DJ and loops the song, another stops it. Personal switch, in-match only — players who leave it off see and load nothing.",
+    "ja": "戦闘画面左下（隅のボタン群の上、ショップバーを避けた位置。ドラッグで移動でき、位置は記憶されます）の「粥友の酒」ボタン。押すと DJ が始まり曲がループ再生され、もう一度押すと止まります。個人用スイッチで対戦中のみ表示、オフの人には何も読み込まれません。",
+    "ko": "전투 화면 왼쪽 아래(구석 버튼 위, 상점 바를 가리지 않는 위치. 드래그로 옮길 수 있고 위치가 기억됩니다)의 「죽우의 술」 버튼. 누르면 DJ가 시작되고 음악이 반복 재생되며, 다시 누르면 멈춥니다. 개인 설정이며 대전 중에만 나타나고, 끈 사람에게는 아무것도 로드되지 않습니다."
+  },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 2,
+  "class": "ui",
+  "scope": [
+    "personal"
+  ],
+  "authors": [
+    "DJ-Amiya"
+  ],
+  "permissions": [
+    "ui.frame"
+  ],
+  "slots": [
+    "hud.right"
+  ],
+  "entry": {
+    "client": "ui/index.html"
+  }
+}
